@@ -1,0 +1,8 @@
+{
+  "name": "figma-klaviyo-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@squoosh/lib": "^0.4.0"
+  }
+}
