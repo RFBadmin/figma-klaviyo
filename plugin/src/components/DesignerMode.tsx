@@ -2,72 +2,87 @@ import { h } from 'preact';
 import { useState, useEffect, useCallback } from 'preact/hooks';
 import { SlicePreview } from './SlicePreview';
 import type { Slice, SliceData, CompressedSlice, CompressResponse } from '../types';
+import type { FrameInfo } from '../ui';
 
 const BACKEND_URL = 'https://figma-klaviyo-production.up.railway.app';
 
 type Step = 'select' | 'analyzing' | 'preview' | 'compressing' | 'results' | 'saved';
 
-interface FrameInfo {
-  id: string;
-  name: string;
-  width: number;
-  height: number;
-  existingSliceData?: SliceData | null;
+interface FrameState {
+  step: Step;
+  slices: Slice[];
+  imageBase64: string | null;
+  compressedSlices: CompressedSlice[];
+  compressResponse: CompressResponse | null;
+  error: string | null;
 }
+
+const defaultState = (): FrameState => ({
+  step: 'select',
+  slices: [],
+  imageBase64: null,
+  compressedSlices: [],
+  compressResponse: null,
+  error: null,
+});
 
 interface Props {
-  frame: FrameInfo | null;
+  frames: FrameInfo[];
 }
 
-export function DesignerMode({ frame }: Props) {
-  const [step, setStep] = useState<Step>('select');
-  const [slices, setSlices] = useState<Slice[]>([]);
-  const [compressedSlices, setCompressedSlices] = useState<CompressedSlice[]>([]);
-  const [compressResponse, setCompressResponse] = useState<CompressResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [imageBase64, setImageBase64] = useState<string | null>(null);
+export function DesignerMode({ frames }: Props) {
+  const [activeFrameId, setActiveFrameId] = useState<string | null>(null);
+  const [frameStates, setFrameStates] = useState<Record<string, FrameState>>({});
 
-  // When a frame with existing slice data is loaded
+  // Active frame object
+  const frame = frames.find(f => f.id === activeFrameId) ?? frames[0] ?? null;
+  const state: FrameState = frame ? (frameStates[frame.id] ?? defaultState()) : defaultState();
+
+  const patchState = useCallback((frameId: string, patch: Partial<FrameState>) => {
+    setFrameStates(prev => ({
+      ...prev,
+      [frameId]: { ...(prev[frameId] ?? defaultState()), ...patch }
+    }));
+  }, []);
+
+  // When frames list changes: keep active frame if still present, else pick first;
+  // initialize state for frames with existing slice data.
   useEffect(() => {
-    if (frame?.existingSliceData) {
-      setSlices(frame.existingSliceData.slices);
-      setStep('preview');
-    } else if (frame) {
-      setStep('select');
-    }
-  }, [frame]);
+    if (frames.length === 0) return;
 
-  // Listen for re-analyze and reset events from SlicePreview
-  useEffect(() => {
-    const onReanalyze = () => frame && analyzeFrame();
-    const onReset = () => {
-      setSlices([]);
-      setStep('select');
-    };
-    window.addEventListener('reanalyze', onReanalyze);
-    window.addEventListener('resetSlices', onReset);
-    return () => {
-      window.removeEventListener('reanalyze', onReanalyze);
-      window.removeEventListener('resetSlices', onReset);
-    };
-  }, [frame]);
+    // Keep current active frame if still in list, else switch to first
+    setActiveFrameId(prev =>
+      frames.find(f => f.id === prev) ? prev : frames[0].id
+    );
 
-  const analyzeFrame = useCallback(async () => {
-    if (!frame) return;
-    setError(null);
-    setStep('analyzing');
+    // Pre-load saved slice data into state
+    setFrameStates(prev => {
+      const next = { ...prev };
+      frames.forEach(f => {
+        if (f.existingSliceData && !next[f.id]) {
+          next[f.id] = { ...defaultState(), slices: f.existingSliceData.slices, step: 'preview' };
+        }
+      });
+      return next;
+    });
+  }, [frames]);
+
+  // ─── Actions ──────────────────────────────────────────────────────────────
+
+  const analyzeFrame = useCallback(async (targetFrame: FrameInfo) => {
+    patchState(targetFrame.id, { error: null, step: 'analyzing' });
 
     try {
-      const fullExport = await exportFullFrame(frame.id);
-      setImageBase64(fullExport);
+      const base64 = await exportFullFrame(targetFrame.id);
+      patchState(targetFrame.id, { imageBase64: base64 });
 
       const response = await fetch(`${BACKEND_URL}/api/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          image_base64: fullExport,
-          frame_width: frame.width,
-          frame_height: frame.height
+          image_base64: base64,
+          frame_width: targetFrame.width,
+          frame_height: targetFrame.height
         })
       });
 
@@ -82,60 +97,51 @@ export function DesignerMode({ frame }: Props) {
         alt_text: s.alt_text
       }));
 
-      setSlices(newSlices);
-      setStep('preview');
+      patchState(targetFrame.id, { slices: newSlices, step: 'preview' });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setError(msg);
-      setStep('select');
+      patchState(targetFrame.id, { error: msg, step: 'select' });
     }
-  }, [frame]);
+  }, [patchState]);
 
-  const compressAndSave = useCallback(async () => {
-    if (!frame || slices.length === 0) return;
-    setError(null);
-    setStep('compressing');
+  const compressAndSave = useCallback(async (targetFrame: FrameInfo, currentState: FrameState) => {
+    if (currentState.slices.length === 0) return;
+    patchState(targetFrame.id, { error: null, step: 'compressing' });
 
     try {
-      // Use already-exported full-frame image; export if not yet available
-      let base64 = imageBase64;
+      let base64 = currentState.imageBase64;
       if (!base64) {
-        base64 = await exportFullFrame(frame.id);
-        setImageBase64(base64);
+        base64 = await exportFullFrame(targetFrame.id);
+        patchState(targetFrame.id, { imageBase64: base64 });
       }
-      const sliceExports = await cropSlicesFromImage(base64, slices, frame.width);
+      const sliceExports = await cropSlicesFromImage(base64, currentState.slices, targetFrame.width);
 
       const response = await fetch(`${BACKEND_URL}/api/compress`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           slices: sliceExports,
-          settings: {
-            target_size_kb: 100,
-            max_size_kb: 200
-          }
+          settings: { target_size_kb: 100, max_size_kb: 200 }
         })
       });
 
       if (!response.ok) throw new Error(`Compression failed: ${response.statusText}`);
 
       const data: CompressResponse = await response.json();
-      setCompressResponse(data);
-      setCompressedSlices(data.compressed);
-      setStep('results');
+      patchState(targetFrame.id, {
+        compressResponse: data,
+        compressedSlices: data.compressed,
+        step: 'results'
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setError(msg);
-      setStep('preview');
+      patchState(targetFrame.id, { error: msg, step: 'preview' });
     }
-  }, [frame, slices, imageBase64]);
+  }, [patchState]);
 
-  const saveDesign = useCallback(() => {
-    if (!frame) return;
-
-    // Update slices with compressed URLs
-    const updatedSlices = slices.map(s => {
-      const compressed = compressedSlices.find(c => c.id === s.id);
+  const saveDesign = useCallback((targetFrame: FrameInfo, currentState: FrameState) => {
+    const updatedSlices = currentState.slices.map(s => {
+      const compressed = currentState.compressedSlices.find(c => c.id === s.id);
       return compressed ? { ...s, compressed_url: compressed.temp_url } : s;
     });
 
@@ -143,35 +149,88 @@ export function DesignerMode({ frame }: Props) {
       version: '1.0.0',
       created_by: 'designer',
       created_at: new Date().toISOString(),
-      frame_id: frame.id,
-      frame_name: frame.name,
+      frame_id: targetFrame.id,
+      frame_name: targetFrame.name,
       slices: updatedSlices,
       status: 'ready'
     };
 
     parent.postMessage({
-      pluginMessage: { type: 'SAVE_SLICE_DATA', frameId: frame.id, data: sliceData }
+      pluginMessage: { type: 'SAVE_SLICE_DATA', frameId: targetFrame.id, data: sliceData }
     }, '*');
 
-    setStep('saved');
-  }, [frame, slices, compressedSlices]);
+    patchState(targetFrame.id, { step: 'saved' });
+  }, [patchState]);
 
   // ─── Render ─────────────────────────────────────────────────────────────────
 
-  if (!frame) {
+  if (frames.length === 0) {
     return (
       <div class="empty-state">
-        <p>Select an email frame (500–700px wide) to get started.</p>
+        <p>Select one or more email frames (500–700px wide) to get started.</p>
       </div>
     );
   }
 
   return (
     <div class="designer-mode">
+      {/* Frame picker — shown when multiple frames are selected */}
+      {frames.length > 1 && (
+        <div class="frame-picker">
+          {frames.map(f => {
+            const fs = frameStates[f.id] ?? defaultState();
+            return (
+              <button
+                key={f.id}
+                class={`frame-pill ${f.id === frame?.id ? 'active' : ''} ${fs.step === 'saved' ? 'done' : ''}`}
+                onClick={() => setActiveFrameId(f.id)}
+                title={`${f.name} (${f.width}×${f.height}px)`}
+              >
+                {fs.step === 'saved' ? '✓ ' : ''}{f.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {frame && (
+        <FrameWorkflow
+          frame={frame}
+          state={state}
+          onAnalyze={() => analyzeFrame(frame)}
+          onSlicesChange={(slices) => patchState(frame.id, { slices })}
+          onCompress={() => compressAndSave(frame, state)}
+          onSave={() => saveDesign(frame, state)}
+          onStepChange={(step) => patchState(frame.id, { step })}
+          onErrorDismiss={() => patchState(frame.id, { error: null })}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── FrameWorkflow — renders the UI for a single frame ────────────────────────
+
+interface WorkflowProps {
+  frame: FrameInfo;
+  state: FrameState;
+  onAnalyze: () => void;
+  onSlicesChange: (slices: Slice[]) => void;
+  onCompress: () => void;
+  onSave: () => void;
+  onStepChange: (step: Step) => void;
+  onErrorDismiss: () => void;
+}
+
+function FrameWorkflow({ frame, state, onAnalyze, onSlicesChange, onCompress, onSave, onStepChange, onErrorDismiss }: WorkflowProps) {
+  const { step, slices, imageBase64, compressResponse, error } = state;
+
+  return (
+    <div>
       {error && (
         <div class="error-banner">
           ⚠ {error}
-          <button onClick={() => setError(null)}>✕</button>
+          <button onClick={onErrorDismiss}>✕</button>
         </div>
       )}
 
@@ -186,7 +245,7 @@ export function DesignerMode({ frame }: Props) {
       {step === 'select' && (
         <div class="step-panel">
           <p>Frame selected. Click analyze to detect slice boundaries using Claude Vision.</p>
-          <button class="btn-primary" onClick={analyzeFrame}>
+          <button class="btn-primary" onClick={onAnalyze}>
             ✦ Analyze with AI
           </button>
         </div>
@@ -199,17 +258,17 @@ export function DesignerMode({ frame }: Props) {
         </div>
       )}
 
-      {(step === 'preview') && (
+      {step === 'preview' && (
         <div class="step-panel">
           <SlicePreview
             slices={slices}
             frameHeight={frame.height}
             imageBase64={imageBase64}
-            onSlicesChange={setSlices}
+            onSlicesChange={onSlicesChange}
           />
           <div class="action-row">
-            <button class="btn-secondary" onClick={analyzeFrame}>↻ Re-analyze</button>
-            <button class="btn-primary" onClick={compressAndSave}>Compress →</button>
+            <button class="btn-secondary" onClick={onAnalyze}>↻ Re-analyze</button>
+            <button class="btn-primary" onClick={onCompress}>Compress →</button>
           </div>
         </div>
       )}
@@ -225,12 +284,12 @@ export function DesignerMode({ frame }: Props) {
         <div class="step-panel">
           <CompressionResults response={compressResponse} />
           <div class="action-row">
-            <button class="btn-secondary" onClick={() => setStep('preview')}>← Adjust Slices</button>
-            <button class="btn-secondary" onClick={compressAndSave}>↻ Re-compress</button>
+            <button class="btn-secondary" onClick={() => onStepChange('preview')}>← Adjust Slices</button>
+            <button class="btn-secondary" onClick={onCompress}>↻ Re-compress</button>
             <button
               class="btn-primary"
               disabled={compressResponse.summary.failed_count > 0}
-              onClick={saveDesign}
+              onClick={onSave}
             >
               Save →
             </button>
@@ -241,14 +300,14 @@ export function DesignerMode({ frame }: Props) {
       {step === 'saved' && (
         <div class="step-panel success">
           <p>✓ Design saved! Tech team can now load it in Tech Mode.</p>
-          <button class="btn-secondary" onClick={() => setStep('preview')}>Edit Slices</button>
+          <button class="btn-secondary" onClick={() => onStepChange('preview')}>Edit Slices</button>
         </div>
       )}
     </div>
   );
 }
 
-// ─── Compression Results Component ──────────────────────────────────────────
+// ─── Compression Results ─────────────────────────────────────────────────────
 
 function CompressionResults({ response }: { response: CompressResponse }) {
   const statusIcon = (s: CompressedSlice['status']) =>
@@ -260,7 +319,6 @@ function CompressionResults({ response }: { response: CompressResponse }) {
         <span>Per slice: ≤100KB ideal │ ≤200KB max</span>
         <span>Total email: ≤500KB recommended</span>
       </div>
-
       <table class="results-table">
         <thead>
           <tr><th>Slice</th><th>Original</th><th>Final</th><th>Status</th></tr>
@@ -282,7 +340,6 @@ function CompressionResults({ response }: { response: CompressResponse }) {
           </tr>
         </tbody>
       </table>
-
       {response.recommendations.map((r, i) => (
         <div key={i} class="recommendation">
           <strong>⚠ {r.slice}:</strong> {r.suggestion}
@@ -329,7 +386,7 @@ async function cropSlicesFromImage(
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
-      const scale = img.naturalWidth / frameWidth; // typically 2 for 2x export
+      const scale = img.naturalWidth / frameWidth;
       const results = slices.map(slice => {
         const canvas = document.createElement('canvas');
         canvas.width = img.naturalWidth;

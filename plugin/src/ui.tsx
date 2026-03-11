@@ -6,7 +6,7 @@ import type { SliceData } from './types';
 
 type Mode = 'designer' | 'tech';
 
-interface FrameInfo {
+export interface FrameInfo {
   id: string;
   name: string;
   width: number;
@@ -16,33 +16,33 @@ interface FrameInfo {
 
 function App() {
   const [mode, setMode] = useState<Mode>('designer');
-  const [frame, setFrame] = useState<FrameInfo | null>(null);
+  const [frames, setFrames] = useState<FrameInfo[]>([]);
   const [noFrameWarning, setNoFrameWarning] = useState(false);
 
   useEffect(() => {
-    // Listen for messages from the Figma sandbox
     window.onmessage = (event: MessageEvent) => {
       const msg = event.data?.pluginMessage;
       if (!msg) return;
 
       switch (msg.type) {
+        case 'FRAMES_SELECTED':
+          setFrames(msg.data);
+          setNoFrameWarning(false);
+          break;
+
         case 'FRAME_SELECTED':
-          setFrame(msg.data);
+          // Backwards compat — wrap single frame in array
+          setFrames([msg.data]);
           setNoFrameWarning(false);
           break;
 
         case 'NO_FRAME_SELECTED':
-          setFrame(null);
+          setFrames([]);
           setNoFrameWarning(true);
-          break;
-
-        case 'SLICE_DATA_SAVED':
-          // No-op: handled in DesignerMode
           break;
       }
     };
 
-    // Ask sandbox for current selection on mount
     parent.postMessage({ pluginMessage: { type: 'GET_SELECTED_FRAME' } }, '*');
   }, []);
 
@@ -70,14 +70,14 @@ function App() {
 
       {noFrameWarning && (
         <div class="frame-warning">
-          Select an email frame (500–700px wide) to get started.
+          Select one or more email frames (500–700px wide) to get started.
         </div>
       )}
 
       <main class="plugin-content">
         {mode === 'designer'
-          ? <DesignerMode frame={frame} />
-          : <TechMode frame={frame} />
+          ? <DesignerMode frames={frames} />
+          : <TechMode frame={frames[0] ?? null} />
         }
       </main>
     </div>

@@ -112,6 +112,13 @@
     .key-indicator { display: flex; align-items: center; gap: 6px; }
     .key-masked { color: #888; font-family: monospace; font-size: 11px; }
 
+    /* ── Frame Picker ────────────────────────────────────── */
+    .frame-picker { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 0 8px; border-bottom: 1px solid #e5e5e5; margin-bottom: 8px; }
+    .frame-pill { padding: 3px 8px; border-radius: 12px; border: 1px solid #ddd; background: #f5f5f5; color: #333; font-size: 11px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .frame-pill.active { background: #0099ff; color: #fff; border-color: #0099ff; }
+    .frame-pill.done { border-color: #22a06b; color: #22a06b; }
+    .frame-pill.active.done { background: #22a06b; border-color: #22a06b; color: #fff; }
+
     /* ── HTML Preview ────────────────────────────────────── */
     .html-preview { border: 1px solid #ddd; border-radius: 4px; overflow: hidden; }
     .html-preview .preview-header { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: #f5f5f5; border-bottom: 1px solid #ddd; font-size: 11px; font-weight: 600; }
@@ -734,48 +741,55 @@
 
   // src/components/DesignerMode.tsx
   var BACKEND_URL = "https://figma-klaviyo-production.up.railway.app";
-  function DesignerMode({ frame }) {
-    const [step, setStep] = d2("select");
-    const [slices, setSlices] = d2([]);
-    const [compressedSlices, setCompressedSlices] = d2([]);
-    const [compressResponse, setCompressResponse] = d2(null);
-    const [error, setError] = d2(null);
-    const [imageBase64, setImageBase64] = d2(null);
+  var defaultState = () => ({
+    step: "select",
+    slices: [],
+    imageBase64: null,
+    compressedSlices: [],
+    compressResponse: null,
+    error: null
+  });
+  function DesignerMode({ frames }) {
+    var _a, _b, _c;
+    const [activeFrameId, setActiveFrameId] = d2(null);
+    const [frameStates, setFrameStates] = d2({});
+    const frame = (_b = (_a = frames.find((f4) => f4.id === activeFrameId)) != null ? _a : frames[0]) != null ? _b : null;
+    const state = frame ? (_c = frameStates[frame.id]) != null ? _c : defaultState() : defaultState();
+    const patchState = q2((frameId, patch) => {
+      setFrameStates((prev) => {
+        var _a2;
+        return __spreadProps(__spreadValues({}, prev), {
+          [frameId]: __spreadValues(__spreadValues({}, (_a2 = prev[frameId]) != null ? _a2 : defaultState()), patch)
+        });
+      });
+    }, []);
     y2(() => {
-      if (frame == null ? void 0 : frame.existingSliceData) {
-        setSlices(frame.existingSliceData.slices);
-        setStep("preview");
-      } else if (frame) {
-        setStep("select");
-      }
-    }, [frame]);
-    y2(() => {
-      const onReanalyze = () => frame && analyzeFrame();
-      const onReset = () => {
-        setSlices([]);
-        setStep("select");
-      };
-      window.addEventListener("reanalyze", onReanalyze);
-      window.addEventListener("resetSlices", onReset);
-      return () => {
-        window.removeEventListener("reanalyze", onReanalyze);
-        window.removeEventListener("resetSlices", onReset);
-      };
-    }, [frame]);
-    const analyzeFrame = q2(() => __async(null, null, function* () {
-      if (!frame) return;
-      setError(null);
-      setStep("analyzing");
+      if (frames.length === 0) return;
+      setActiveFrameId(
+        (prev) => frames.find((f4) => f4.id === prev) ? prev : frames[0].id
+      );
+      setFrameStates((prev) => {
+        const next = __spreadValues({}, prev);
+        frames.forEach((f4) => {
+          if (f4.existingSliceData && !next[f4.id]) {
+            next[f4.id] = __spreadProps(__spreadValues({}, defaultState()), { slices: f4.existingSliceData.slices, step: "preview" });
+          }
+        });
+        return next;
+      });
+    }, [frames]);
+    const analyzeFrame = q2((targetFrame) => __async(null, null, function* () {
+      patchState(targetFrame.id, { error: null, step: "analyzing" });
       try {
-        const fullExport = yield exportFullFrame(frame.id);
-        setImageBase64(fullExport);
+        const base64 = yield exportFullFrame(targetFrame.id);
+        patchState(targetFrame.id, { imageBase64: base64 });
         const response = yield fetch(`${BACKEND_URL}/api/analyze`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            image_base64: fullExport,
-            frame_width: frame.width,
-            frame_height: frame.height
+            image_base64: base64,
+            frame_width: targetFrame.width,
+            frame_height: targetFrame.height
           })
         });
         if (!response.ok) throw new Error(`Analysis failed: ${response.statusText}`);
@@ -787,75 +801,104 @@
           y_end: s3.y_end,
           alt_text: s3.alt_text
         }));
-        setSlices(newSlices);
-        setStep("preview");
+        patchState(targetFrame.id, { slices: newSlices, step: "preview" });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        setError(msg);
-        setStep("select");
+        patchState(targetFrame.id, { error: msg, step: "select" });
       }
-    }), [frame]);
-    const compressAndSave = q2(() => __async(null, null, function* () {
-      if (!frame || slices.length === 0) return;
-      setError(null);
-      setStep("compressing");
+    }), [patchState]);
+    const compressAndSave = q2((targetFrame, currentState) => __async(null, null, function* () {
+      if (currentState.slices.length === 0) return;
+      patchState(targetFrame.id, { error: null, step: "compressing" });
       try {
-        let base64 = imageBase64;
+        let base64 = currentState.imageBase64;
         if (!base64) {
-          base64 = yield exportFullFrame(frame.id);
-          setImageBase64(base64);
+          base64 = yield exportFullFrame(targetFrame.id);
+          patchState(targetFrame.id, { imageBase64: base64 });
         }
-        const sliceExports = yield cropSlicesFromImage(base64, slices, frame.width);
+        const sliceExports = yield cropSlicesFromImage(base64, currentState.slices, targetFrame.width);
         const response = yield fetch(`${BACKEND_URL}/api/compress`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             slices: sliceExports,
-            settings: {
-              target_size_kb: 100,
-              max_size_kb: 200
-            }
+            settings: { target_size_kb: 100, max_size_kb: 200 }
           })
         });
         if (!response.ok) throw new Error(`Compression failed: ${response.statusText}`);
         const data = yield response.json();
-        setCompressResponse(data);
-        setCompressedSlices(data.compressed);
-        setStep("results");
+        patchState(targetFrame.id, {
+          compressResponse: data,
+          compressedSlices: data.compressed,
+          step: "results"
+        });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        setError(msg);
-        setStep("preview");
+        patchState(targetFrame.id, { error: msg, step: "preview" });
       }
-    }), [frame, slices, imageBase64]);
-    const saveDesign = q2(() => {
-      if (!frame) return;
-      const updatedSlices = slices.map((s3) => {
-        const compressed = compressedSlices.find((c3) => c3.id === s3.id);
+    }), [patchState]);
+    const saveDesign = q2((targetFrame, currentState) => {
+      const updatedSlices = currentState.slices.map((s3) => {
+        const compressed = currentState.compressedSlices.find((c3) => c3.id === s3.id);
         return compressed ? __spreadProps(__spreadValues({}, s3), { compressed_url: compressed.temp_url }) : s3;
       });
       const sliceData = {
         version: "1.0.0",
         created_by: "designer",
         created_at: (/* @__PURE__ */ new Date()).toISOString(),
-        frame_id: frame.id,
-        frame_name: frame.name,
+        frame_id: targetFrame.id,
+        frame_name: targetFrame.name,
         slices: updatedSlices,
         status: "ready"
       };
       parent.postMessage({
-        pluginMessage: { type: "SAVE_SLICE_DATA", frameId: frame.id, data: sliceData }
+        pluginMessage: { type: "SAVE_SLICE_DATA", frameId: targetFrame.id, data: sliceData }
       }, "*");
-      setStep("saved");
-    }, [frame, slices, compressedSlices]);
-    if (!frame) {
-      return /* @__PURE__ */ u3("div", { class: "empty-state", children: /* @__PURE__ */ u3("p", { children: "Select an email frame (500\u2013700px wide) to get started." }) });
+      patchState(targetFrame.id, { step: "saved" });
+    }, [patchState]);
+    if (frames.length === 0) {
+      return /* @__PURE__ */ u3("div", { class: "empty-state", children: /* @__PURE__ */ u3("p", { children: "Select one or more email frames (500\u2013700px wide) to get started." }) });
     }
     return /* @__PURE__ */ u3("div", { class: "designer-mode", children: [
+      frames.length > 1 && /* @__PURE__ */ u3("div", { class: "frame-picker", children: frames.map((f4) => {
+        var _a2;
+        const fs = (_a2 = frameStates[f4.id]) != null ? _a2 : defaultState();
+        return /* @__PURE__ */ u3(
+          "button",
+          {
+            class: `frame-pill ${f4.id === (frame == null ? void 0 : frame.id) ? "active" : ""} ${fs.step === "saved" ? "done" : ""}`,
+            onClick: () => setActiveFrameId(f4.id),
+            title: `${f4.name} (${f4.width}\xD7${f4.height}px)`,
+            children: [
+              fs.step === "saved" ? "\u2713 " : "",
+              f4.name
+            ]
+          },
+          f4.id
+        );
+      }) }),
+      frame && /* @__PURE__ */ u3(
+        FrameWorkflow,
+        {
+          frame,
+          state,
+          onAnalyze: () => analyzeFrame(frame),
+          onSlicesChange: (slices) => patchState(frame.id, { slices }),
+          onCompress: () => compressAndSave(frame, state),
+          onSave: () => saveDesign(frame, state),
+          onStepChange: (step) => patchState(frame.id, { step }),
+          onErrorDismiss: () => patchState(frame.id, { error: null })
+        }
+      )
+    ] });
+  }
+  function FrameWorkflow({ frame, state, onAnalyze, onSlicesChange, onCompress, onSave, onStepChange, onErrorDismiss }) {
+    const { step, slices, imageBase64, compressResponse, error } = state;
+    return /* @__PURE__ */ u3("div", { children: [
       error && /* @__PURE__ */ u3("div", { class: "error-banner", children: [
         "\u26A0 ",
         error,
-        /* @__PURE__ */ u3("button", { onClick: () => setError(null), children: "\u2715" })
+        /* @__PURE__ */ u3("button", { onClick: onErrorDismiss, children: "\u2715" })
       ] }),
       /* @__PURE__ */ u3("div", { class: "frame-info", children: [
         /* @__PURE__ */ u3("span", { class: "frame-icon", children: "\u{1F4E7}" }),
@@ -871,7 +914,7 @@
       ] }),
       step === "select" && /* @__PURE__ */ u3("div", { class: "step-panel", children: [
         /* @__PURE__ */ u3("p", { children: "Frame selected. Click analyze to detect slice boundaries using Claude Vision." }),
-        /* @__PURE__ */ u3("button", { class: "btn-primary", onClick: analyzeFrame, children: "\u2726 Analyze with AI" })
+        /* @__PURE__ */ u3("button", { class: "btn-primary", onClick: onAnalyze, children: "\u2726 Analyze with AI" })
       ] }),
       step === "analyzing" && /* @__PURE__ */ u3("div", { class: "step-panel loading", children: [
         /* @__PURE__ */ u3("div", { class: "spinner" }),
@@ -884,12 +927,12 @@
             slices,
             frameHeight: frame.height,
             imageBase64,
-            onSlicesChange: setSlices
+            onSlicesChange
           }
         ),
         /* @__PURE__ */ u3("div", { class: "action-row", children: [
-          /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: analyzeFrame, children: "\u21BB Re-analyze" }),
-          /* @__PURE__ */ u3("button", { class: "btn-primary", onClick: compressAndSave, children: "Compress \u2192" })
+          /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: onAnalyze, children: "\u21BB Re-analyze" }),
+          /* @__PURE__ */ u3("button", { class: "btn-primary", onClick: onCompress, children: "Compress \u2192" })
         ] })
       ] }),
       step === "compressing" && /* @__PURE__ */ u3("div", { class: "step-panel loading", children: [
@@ -903,14 +946,14 @@
       step === "results" && compressResponse && /* @__PURE__ */ u3("div", { class: "step-panel", children: [
         /* @__PURE__ */ u3(CompressionResults, { response: compressResponse }),
         /* @__PURE__ */ u3("div", { class: "action-row", children: [
-          /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: () => setStep("preview"), children: "\u2190 Adjust Slices" }),
-          /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: compressAndSave, children: "\u21BB Re-compress" }),
+          /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: () => onStepChange("preview"), children: "\u2190 Adjust Slices" }),
+          /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: onCompress, children: "\u21BB Re-compress" }),
           /* @__PURE__ */ u3(
             "button",
             {
               class: "btn-primary",
               disabled: compressResponse.summary.failed_count > 0,
-              onClick: saveDesign,
+              onClick: onSave,
               children: "Save \u2192"
             }
           )
@@ -918,7 +961,7 @@
       ] }),
       step === "saved" && /* @__PURE__ */ u3("div", { class: "step-panel success", children: [
         /* @__PURE__ */ u3("p", { children: "\u2713 Design saved! Tech team can now load it in Tech Mode." }),
-        /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: () => setStep("preview"), children: "Edit Slices" })
+        /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: () => onStepChange("preview"), children: "Edit Slices" })
       ] })
     ] });
   }
@@ -1423,24 +1466,27 @@
 
   // src/ui.tsx
   function App() {
+    var _a;
     const [mode, setMode] = d2("designer");
-    const [frame, setFrame] = d2(null);
+    const [frames, setFrames] = d2([]);
     const [noFrameWarning, setNoFrameWarning] = d2(false);
     y2(() => {
       window.onmessage = (event) => {
-        var _a;
-        const msg = (_a = event.data) == null ? void 0 : _a.pluginMessage;
+        var _a2;
+        const msg = (_a2 = event.data) == null ? void 0 : _a2.pluginMessage;
         if (!msg) return;
         switch (msg.type) {
+          case "FRAMES_SELECTED":
+            setFrames(msg.data);
+            setNoFrameWarning(false);
+            break;
           case "FRAME_SELECTED":
-            setFrame(msg.data);
+            setFrames([msg.data]);
             setNoFrameWarning(false);
             break;
           case "NO_FRAME_SELECTED":
-            setFrame(null);
+            setFrames([]);
             setNoFrameWarning(true);
-            break;
-          case "SLICE_DATA_SAVED":
             break;
         }
       };
@@ -1469,8 +1515,8 @@
           }
         )
       ] }),
-      noFrameWarning && /* @__PURE__ */ u3("div", { class: "frame-warning", children: "Select an email frame (500\u2013700px wide) to get started." }),
-      /* @__PURE__ */ u3("main", { class: "plugin-content", children: mode === "designer" ? /* @__PURE__ */ u3(DesignerMode, { frame }) : /* @__PURE__ */ u3(TechMode, { frame }) })
+      noFrameWarning && /* @__PURE__ */ u3("div", { class: "frame-warning", children: "Select one or more email frames (500\u2013700px wide) to get started." }),
+      /* @__PURE__ */ u3("main", { class: "plugin-content", children: mode === "designer" ? /* @__PURE__ */ u3(DesignerMode, { frames }) : /* @__PURE__ */ u3(TechMode, { frame: (_a = frames[0]) != null ? _a : null }) })
     ] });
   }
   J(/* @__PURE__ */ u3(App, {}), document.getElementById("root"));
