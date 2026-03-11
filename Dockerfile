@@ -1,4 +1,4 @@
-FROM node:22-alpine
+FROM node:18-alpine
 
 # Upgrade all Alpine packages to patch OS-level CVEs
 RUN apk upgrade --no-cache
