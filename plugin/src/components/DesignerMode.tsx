@@ -92,12 +92,18 @@ export function DesignerMode({ frames }: Props) {
     }
   }, [patchState]);
 
-  /** Secondary: use Claude Vision AI to detect slice boundaries */
+  /** Secondary: use Claude Vision AI to detect slice boundaries.
+   *  Sends layer bands alongside the image so AI groups exact positions
+   *  rather than guessing pixel coordinates from the image. */
   const analyzeFrame = useCallback(async (targetFrame: FrameInfo) => {
     patchState(targetFrame.id, { error: null, step: 'analyzing' });
 
     try {
-      const base64 = await exportFullFrame(targetFrame.id);
+      // Get image + layer bands in parallel
+      const [base64, bands] = await Promise.all([
+        exportFullFrame(targetFrame.id),
+        requestFrameLayout(targetFrame.id)
+      ]);
       patchState(targetFrame.id, { imageBase64: base64 });
 
       const response = await fetch(`${BACKEND_URL}/api/analyze`, {
@@ -106,7 +112,8 @@ export function DesignerMode({ frames }: Props) {
         body: JSON.stringify({
           image_base64: base64,
           frame_width: targetFrame.width,
-          frame_height: targetFrame.height
+          frame_height: targetFrame.height,
+          layer_bands: bands   // AI groups these instead of guessing pixels
         })
       });
 

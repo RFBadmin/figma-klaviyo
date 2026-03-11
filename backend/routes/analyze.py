@@ -27,6 +27,7 @@ def analyze():
     image_base64 = data.get('image_base64')
     frame_width = data.get('frame_width')
     frame_height = data.get('frame_height')
+    layer_bands = data.get('layer_bands')  # optional: pre-computed Figma layer bands
 
     if not image_base64:
         return jsonify({'error': 'image_base64 is required'}), 400
@@ -37,7 +38,8 @@ def analyze():
         result = claude_service.analyze_email_design(
             image_base64=image_base64,
             width=int(frame_width),
-            height=int(frame_height)
+            height=int(frame_height),
+            layer_bands=layer_bands or None
         )
         return jsonify(result)
 

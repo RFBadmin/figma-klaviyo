@@ -673,7 +673,10 @@
     const analyzeFrame = q2((targetFrame) => __async(null, null, function* () {
       patchState(targetFrame.id, { error: null, step: "analyzing" });
       try {
-        const base64 = yield exportFullFrame(targetFrame.id);
+        const [base64, bands] = yield Promise.all([
+          exportFullFrame(targetFrame.id),
+          requestFrameLayout(targetFrame.id)
+        ]);
         patchState(targetFrame.id, { imageBase64: base64 });
         const response = yield fetch(`${BACKEND_URL}/api/analyze`, {
           method: "POST",
@@ -681,7 +684,9 @@
           body: JSON.stringify({
             image_base64: base64,
             frame_width: targetFrame.width,
-            frame_height: targetFrame.height
+            frame_height: targetFrame.height,
+            layer_bands: bands
+            // AI groups these instead of guessing pixels
           })
         });
         if (!response.ok) throw new Error(`Analysis failed: ${response.statusText}`);
