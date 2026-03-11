@@ -284,7 +284,7 @@ function FrameWorkflow({ frame, state, onAutoSlice, onAnalyze, onSlicesChange, o
       {step === 'analyzing' && (
         <div class="step-panel loading">
           <div class="spinner" />
-          <p>Claude Vision is analyzing your design…</p>
+          <p>Slicing your design…</p>
         </div>
       )}
 

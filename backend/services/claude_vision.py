@@ -3,45 +3,44 @@ import json
 import re
 
 
-SLICE_PROMPT = """You are an expert email HTML developer analyzing a Figma email design. Your task is to identify precise horizontal slice boundaries so each slice can be exported as a separate image and stacked in an HTML email.
+SLICE_PROMPT = """You are analyzing an email design image to determine where to slice it into horizontal image strips for HTML email.
 
-CRITICAL RULES:
-1. Every slice must span the FULL WIDTH — no vertical splits, ever
-2. Slice boundaries must fall in EMPTY SPACE between content rows — never cut through text, images, icons, buttons, or decorative elements
-3. Look carefully at the vertical rhythm: find whitespace gaps, padding areas, or divider lines between sections
-4. Name slices descriptively: header, logo_bar, hero_image, headline, subtext, product_grid, cta_button, divider, feature_row_1, footer, etc.
-5. For complex designs with many elements, use MORE slices (up to 15) to keep each slice self-contained
-6. A section with a colored background that spans the full width can be one slice if it contains tightly grouped content
-7. CTAs (buttons) should usually be their own slice or grouped with directly adjacent text
-8. Thin decorative strips, dividers, or spacers between sections should be their own slice
-9. Product grids: if products are in rows, each row can be a separate slice
+The ONLY reason to create a new slice is if that area needs a DIFFERENT redirect link than the area above it.
+Ask yourself: "Would someone click this area to go somewhere different?"
 
-BOUNDARY DETECTION STRATEGY:
-- Scan vertically for horizontal whitespace gaps (typically 8–40px) — these are ideal cut points
-- Look for background color transitions — these mark natural section boundaries
-- Identify clear content groupings (logo area, hero area, body copy block, CTA block, footer block)
-- When in doubt, make more slices rather than fewer to avoid cutting through content
+SLICE WHEN:
+- A logo or header banner (links to homepage)
+- A hero image or product photo (links to product/offer page)
+- A CTA button or "Shop Now" / "Learn More" link (links to landing page)
+- A product row or grid (each row may link to different products)
+- A footer (links to unsubscribe/preferences)
 
-Image dimensions: {width}px × {height}px (tall email designs may have 8–15+ sections)
+DO NOT SLICE:
+- Plain body text paragraphs (no link needed — keep as part of the surrounding slice)
+- Decorative dividers or spacers (absorb into adjacent slice)
+- Every tiny visual change — only slice where the LINK destination changes
 
-Return ONLY valid JSON in this exact format (no markdown, no explanation outside JSON):
+Keep it minimal: most emails need only 3–6 slices.
+
+Image dimensions: {width}px × {height}px
+
+Return ONLY valid JSON (no markdown):
 {{
   "slices": [
     {{
       "name": "section_name",
       "y_start": 0,
       "y_end": 150,
-      "alt_text": "Brief description for accessibility"
+      "alt_text": "Brief description"
     }}
   ],
-  "analysis": "Brief explanation of slicing strategy used"
+  "analysis": "One sentence explaining the slicing decisions"
 }}
 
 REQUIREMENTS:
-- y_end of slice N must exactly equal y_start of slice N+1 (no gaps, no overlaps)
+- y_end of slice N must equal y_start of slice N+1 (no gaps, no overlaps)
 - First slice: y_start = 0
 - Last slice: y_end = {height}
-- Minimum slice height: 10px
 - All y values must be integers"""
 
 
