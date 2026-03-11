@@ -650,27 +650,7 @@
         return next;
       });
     }, [frames]);
-    const autoSliceFrame = q2((targetFrame) => __async(null, null, function* () {
-      patchState(targetFrame.id, { error: null, step: "analyzing" });
-      try {
-        const [base64, bands] = yield Promise.all([
-          exportFullFrame(targetFrame.id),
-          requestFrameLayout(targetFrame.id)
-        ]);
-        const newSlices = bands.map((b, i3) => ({
-          id: `slice_${Date.now()}_${i3}`,
-          name: b.name,
-          y_start: b.y_start,
-          y_end: b.y_end,
-          alt_text: b.name.replace(/_/g, " ")
-        }));
-        patchState(targetFrame.id, { imageBase64: base64, slices: newSlices, step: "preview" });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        patchState(targetFrame.id, { error: msg, step: "select" });
-      }
-    }), [patchState]);
-    const analyzeFrame = q2((targetFrame) => __async(null, null, function* () {
+    const sliceFrame = q2((targetFrame) => __async(null, null, function* () {
       patchState(targetFrame.id, { error: null, step: "analyzing" });
       try {
         const [base64, bands] = yield Promise.all([
@@ -686,10 +666,9 @@
             frame_width: targetFrame.width,
             frame_height: targetFrame.height,
             layer_bands: bands
-            // AI groups these instead of guessing pixels
           })
         });
-        if (!response.ok) throw new Error(`Analysis failed: ${response.statusText}`);
+        if (!response.ok) throw new Error(`Slicing failed: ${response.statusText}`);
         const data = yield response.json();
         const newSlices = data.slices.map((s3, i3) => ({
           id: `slice_${Date.now()}_${i3}`,
@@ -779,8 +758,7 @@
         {
           frame,
           state,
-          onAutoSlice: () => autoSliceFrame(frame),
-          onAnalyze: () => analyzeFrame(frame),
+          onSlice: () => sliceFrame(frame),
           onSlicesChange: (slices) => patchState(frame.id, { slices }),
           onCompress: () => compressAndSave(frame, state),
           onSave: () => saveDesign(frame, state),
@@ -790,7 +768,7 @@
       )
     ] });
   }
-  function FrameWorkflow({ frame, state, onAutoSlice, onAnalyze, onSlicesChange, onCompress, onSave, onStepChange, onErrorDismiss }) {
+  function FrameWorkflow({ frame, state, onSlice, onSlicesChange, onCompress, onSave, onStepChange, onErrorDismiss }) {
     const { step, slices, imageBase64, compressResponse, error } = state;
     return /* @__PURE__ */ u3("div", { children: [
       error && /* @__PURE__ */ u3("div", { class: "error-banner", children: [
@@ -810,12 +788,7 @@
           ] })
         ] })
       ] }),
-      step === "select" && /* @__PURE__ */ u3("div", { class: "step-panel", children: [
-        /* @__PURE__ */ u3("p", { children: "Choose how to detect slice boundaries:" }),
-        /* @__PURE__ */ u3("button", { class: "btn-primary", onClick: onAutoSlice, children: "\u2B21 Auto-Slice from Layers" }),
-        /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: onAnalyze, children: "\u2726 Analyze with AI (Claude Vision)" }),
-        /* @__PURE__ */ u3("p", { class: "slice-hint", children: "Auto-Slice uses your Figma layers \u2014 always accurate. AI is useful when layers aren't well-organized." })
-      ] }),
+      step === "select" && /* @__PURE__ */ u3("div", { class: "step-panel", children: /* @__PURE__ */ u3("button", { class: "btn-primary", onClick: onSlice, children: "\u2726 Slice Design" }) }),
       step === "analyzing" && /* @__PURE__ */ u3("div", { class: "step-panel loading", children: [
         /* @__PURE__ */ u3("div", { class: "spinner" }),
         /* @__PURE__ */ u3("p", { children: "Slicing your design\u2026" })
@@ -831,8 +804,7 @@
           }
         ),
         /* @__PURE__ */ u3("div", { class: "action-row", children: [
-          /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: onAutoSlice, title: "Re-slice from Figma layers", children: "\u2B21 Layers" }),
-          /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: onAnalyze, title: "Re-analyze with Claude Vision", children: "\u2726 AI" }),
+          /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: onSlice, children: "\u21BB Re-slice" }),
           /* @__PURE__ */ u3("button", { class: "btn-primary", onClick: onCompress, children: "Compress \u2192" })
         ] })
       ] }),

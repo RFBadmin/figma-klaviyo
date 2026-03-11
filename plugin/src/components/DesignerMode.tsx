@@ -69,37 +69,10 @@ export function DesignerMode({ frames }: Props) {
 
   // ─── Actions ──────────────────────────────────────────────────────────────
 
-  /** Primary: slice using Figma layer bounding boxes — never cuts through content */
-  const autoSliceFrame = useCallback(async (targetFrame: FrameInfo) => {
+  /** Slice the frame: layer positions (exact) + AI grouping (smart names & merging) */
+  const sliceFrame = useCallback(async (targetFrame: FrameInfo) => {
     patchState(targetFrame.id, { error: null, step: 'analyzing' });
     try {
-      // Export full frame image in parallel with node layout request
-      const [base64, bands] = await Promise.all([
-        exportFullFrame(targetFrame.id),
-        requestFrameLayout(targetFrame.id)
-      ]);
-      const newSlices: Slice[] = bands.map((b: LayoutBand, i: number) => ({
-        id: `slice_${Date.now()}_${i}`,
-        name: b.name,
-        y_start: b.y_start,
-        y_end: b.y_end,
-        alt_text: b.name.replace(/_/g, ' ')
-      }));
-      patchState(targetFrame.id, { imageBase64: base64, slices: newSlices, step: 'preview' });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      patchState(targetFrame.id, { error: msg, step: 'select' });
-    }
-  }, [patchState]);
-
-  /** Secondary: use Claude Vision AI to detect slice boundaries.
-   *  Sends layer bands alongside the image so AI groups exact positions
-   *  rather than guessing pixel coordinates from the image. */
-  const analyzeFrame = useCallback(async (targetFrame: FrameInfo) => {
-    patchState(targetFrame.id, { error: null, step: 'analyzing' });
-
-    try {
-      // Get image + layer bands in parallel
       const [base64, bands] = await Promise.all([
         exportFullFrame(targetFrame.id),
         requestFrameLayout(targetFrame.id)
@@ -113,11 +86,11 @@ export function DesignerMode({ frames }: Props) {
           image_base64: base64,
           frame_width: targetFrame.width,
           frame_height: targetFrame.height,
-          layer_bands: bands   // AI groups these instead of guessing pixels
+          layer_bands: bands
         })
       });
 
-      if (!response.ok) throw new Error(`Analysis failed: ${response.statusText}`);
+      if (!response.ok) throw new Error(`Slicing failed: ${response.statusText}`);
 
       const data = await response.json();
       const newSlices: Slice[] = data.slices.map((s: { name: string; y_start: number; y_end: number; alt_text: string }, i: number) => ({
@@ -228,8 +201,7 @@ export function DesignerMode({ frames }: Props) {
         <FrameWorkflow
           frame={frame}
           state={state}
-          onAutoSlice={() => autoSliceFrame(frame)}
-        onAnalyze={() => analyzeFrame(frame)}
+          onSlice={() => sliceFrame(frame)}
           onSlicesChange={(slices) => patchState(frame.id, { slices })}
           onCompress={() => compressAndSave(frame, state)}
           onSave={() => saveDesign(frame, state)}
@@ -246,8 +218,7 @@ export function DesignerMode({ frames }: Props) {
 interface WorkflowProps {
   frame: FrameInfo;
   state: FrameState;
-  onAutoSlice: () => void;
-  onAnalyze: () => void;
+  onSlice: () => void;
   onSlicesChange: (slices: Slice[]) => void;
   onCompress: () => void;
   onSave: () => void;
@@ -255,7 +226,7 @@ interface WorkflowProps {
   onErrorDismiss: () => void;
 }
 
-function FrameWorkflow({ frame, state, onAutoSlice, onAnalyze, onSlicesChange, onCompress, onSave, onStepChange, onErrorDismiss }: WorkflowProps) {
+function FrameWorkflow({ frame, state, onSlice, onSlicesChange, onCompress, onSave, onStepChange, onErrorDismiss }: WorkflowProps) {
   const { step, slices, imageBase64, compressResponse, error } = state;
 
   return (
@@ -277,14 +248,9 @@ function FrameWorkflow({ frame, state, onAutoSlice, onAnalyze, onSlicesChange, o
 
       {step === 'select' && (
         <div class="step-panel">
-          <p>Choose how to detect slice boundaries:</p>
-          <button class="btn-primary" onClick={onAutoSlice}>
-            ⬡ Auto-Slice from Layers
+          <button class="btn-primary" onClick={onSlice}>
+            ✦ Slice Design
           </button>
-          <button class="btn-secondary" onClick={onAnalyze}>
-            ✦ Analyze with AI (Claude Vision)
-          </button>
-          <p class="slice-hint">Auto-Slice uses your Figma layers — always accurate. AI is useful when layers aren't well-organized.</p>
         </div>
       )}
 
@@ -304,8 +270,7 @@ function FrameWorkflow({ frame, state, onAutoSlice, onAnalyze, onSlicesChange, o
             onSlicesChange={onSlicesChange}
           />
           <div class="action-row">
-            <button class="btn-secondary" onClick={onAutoSlice} title="Re-slice from Figma layers">⬡ Layers</button>
-            <button class="btn-secondary" onClick={onAnalyze} title="Re-analyze with Claude Vision">✦ AI</button>
+            <button class="btn-secondary" onClick={onSlice}>↻ Re-slice</button>
             <button class="btn-primary" onClick={onCompress}>Compress →</button>
           </div>
         </div>
