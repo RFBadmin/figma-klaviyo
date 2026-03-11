@@ -679,7 +679,12 @@
       setError(null);
       setStep("compressing");
       try {
-        const sliceExports = yield exportSlicesFromParent(frame.id, slices);
+        let base64 = imageBase64;
+        if (!base64) {
+          base64 = yield exportFullFrame(frame.id);
+          setImageBase64(base64);
+        }
+        const sliceExports = yield cropSlicesFromImage(base64, slices, frame.width);
         const response = yield fetch(`${BACKEND_URL}/api/compress`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -701,7 +706,7 @@
         setError(msg);
         setStep("preview");
       }
-    }), [frame, slices]);
+    }), [frame, slices, imageBase64]);
     const saveDesign = q2(() => {
       if (!frame) return;
       const updatedSlices = slices.map((s3) => {
@@ -865,22 +870,39 @@
       });
     });
   }
-  function exportSlicesFromParent(frameId, slices) {
+  function cropSlicesFromImage(imageBase64, slices, frameWidth) {
     return __async(this, null, function* () {
       return new Promise((resolve, reject) => {
-        const handler = (event) => {
-          var _a;
-          const msg = (_a = event.data) == null ? void 0 : _a.pluginMessage;
-          if ((msg == null ? void 0 : msg.type) === "EXPORT_COMPLETE") {
-            window.removeEventListener("message", handler);
-            resolve(msg.data);
-          } else if ((msg == null ? void 0 : msg.type) === "ERROR") {
-            window.removeEventListener("message", handler);
-            reject(new Error(msg.message));
-          }
+        const img = new Image();
+        img.onload = () => {
+          const scale = img.naturalWidth / frameWidth;
+          const results = slices.map((slice) => {
+            const canvas = document.createElement("canvas");
+            canvas.width = img.naturalWidth;
+            canvas.height = Math.round((slice.y_end - slice.y_start) * scale);
+            const ctx = canvas.getContext("2d");
+            if (!ctx) throw new Error("Canvas 2D context unavailable");
+            ctx.drawImage(
+              img,
+              0,
+              Math.round(slice.y_start * scale),
+              img.naturalWidth,
+              canvas.height,
+              0,
+              0,
+              canvas.width,
+              canvas.height
+            );
+            return {
+              id: slice.id,
+              name: slice.name,
+              image_base64: canvas.toDataURL("image/png").split(",")[1]
+            };
+          });
+          resolve(results);
         };
-        window.addEventListener("message", handler);
-        parent.postMessage({ pluginMessage: { type: "EXPORT_SLICES", frameId, slices } }, "*");
+        img.onerror = () => reject(new Error("Failed to load frame image for cropping"));
+        img.src = `data:image/png;base64,${imageBase64}`;
       });
     });
   }

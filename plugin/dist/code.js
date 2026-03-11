@@ -62,48 +62,6 @@
     }
     return result;
   }
-  function exportSlices(frameId, slices) {
-    return __async(this, null, function* () {
-      const frame = figma.getNodeById(frameId);
-      if (!frame) throw new Error(`Frame ${frameId} not found`);
-      const exports = [];
-      for (const slice of slices) {
-        const sliceHeight = slice.y_end - slice.y_start;
-        const sliceFrame = figma.createFrame();
-        sliceFrame.name = `_temp_slice_${slice.name}`;
-        sliceFrame.resize(frame.width, sliceHeight);
-        sliceFrame.x = frame.x;
-        sliceFrame.y = frame.y + slice.y_start;
-        sliceFrame.fills = [];
-        sliceFrame.clipsContent = true;
-        for (const child of frame.children) {
-          const childNode = child;
-          const childTop = childNode.y;
-          const childBottom = childNode.y + childNode.height;
-          if (childBottom > slice.y_start && childTop < slice.y_end) {
-            const cloned = child.clone();
-            sliceFrame.appendChild(cloned);
-            cloned.y = childNode.y - slice.y_start;
-          }
-        }
-        const exportSettings = {
-          format: "PNG",
-          constraint: { type: "SCALE", value: 2 }
-          // 2x for retina
-        };
-        const bytes = yield sliceFrame.exportAsync(exportSettings);
-        exports.push({
-          id: slice.id,
-          name: slice.name,
-          image_base64: uint8ArrayToBase64(bytes),
-          width: frame.width,
-          height: sliceHeight
-        });
-        sliceFrame.remove();
-      }
-      return exports;
-    });
-  }
   var init_export = __esm({
     "src/utils/export.ts"() {
       "use strict";
@@ -111,14 +69,8 @@
   });
 
   // src/utils/figma-api.ts
-  function getSelectedEmailFrame() {
-    const selection = figma.currentPage.selection;
-    if (selection.length !== 1) return null;
-    const node = selection[0];
-    if (node.type !== "FRAME") return null;
-    const frame = node;
-    if (frame.width < 500 || frame.width > 700) return null;
-    return frame;
+  function getSelectedEmailFrames() {
+    return figma.currentPage.selection.filter((node) => node.type === "FRAME").map((node) => node).filter((frame) => frame.width >= 500 && frame.width <= 700);
   }
   var init_figma_api = __esm({
     "src/utils/figma-api.ts"() {
@@ -153,11 +105,6 @@
                 constraint: { type: "SCALE", value: 2 }
               });
               figma.ui.postMessage({ type: "FRAME_EXPORTED", data: uint8ArrayToBase64(bytes) });
-              break;
-            }
-            case "EXPORT_SLICES": {
-              const exports2 = yield exportSlices(msg.frameId, msg.slices);
-              figma.ui.postMessage({ type: "EXPORT_COMPLETE", data: exports2 });
               break;
             }
             case "SAVE_SLICE_DATA": {
@@ -202,19 +149,16 @@
         }
       });
       function notifyFrameSelection() {
-        const frame = getSelectedEmailFrame();
-        if (frame) {
-          const existingData = loadSliceData(frame.id);
-          figma.ui.postMessage({
-            type: "FRAME_SELECTED",
-            data: {
-              id: frame.id,
-              name: frame.name,
-              width: frame.width,
-              height: frame.height,
-              existingSliceData: existingData
-            }
-          });
+        const frames = getSelectedEmailFrames();
+        if (frames.length > 0) {
+          const data = frames.map((frame) => ({
+            id: frame.id,
+            name: frame.name,
+            width: frame.width,
+            height: frame.height,
+            existingSliceData: loadSliceData(frame.id)
+          }));
+          figma.ui.postMessage({ type: "FRAMES_SELECTED", data });
         } else {
           figma.ui.postMessage({ type: "NO_FRAME_SELECTED" });
         }
