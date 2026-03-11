@@ -1,18 +1,15 @@
 // Figma node utilities
 
 export function getSelectedEmailFrame(): FrameNode | null {
-  const selection = figma.currentPage.selection;
+  const frames = getSelectedEmailFrames();
+  return frames.length === 1 ? frames[0] : null;
+}
 
-  if (selection.length !== 1) return null;
-  const node = selection[0];
-  if (node.type !== 'FRAME') return null;
-
-  const frame = node as FrameNode;
-
-  // Validate email dimensions: typical email is 500–700px wide
-  if (frame.width < 500 || frame.width > 700) return null;
-
-  return frame;
+export function getSelectedEmailFrames(): FrameNode[] {
+  return figma.currentPage.selection
+    .filter(node => node.type === 'FRAME')
+    .map(node => node as FrameNode)
+    .filter(frame => frame.width >= 500 && frame.width <= 700);
 }
 
 export function getFrameById(id: string): FrameNode | null {

@@ -446,7 +446,7 @@
 
   // src/components/SlicePreview.tsx
   var PREVIEW_WIDTH = 280;
-  function SlicePreview({ slices, frameHeight, onSlicesChange }) {
+  function SlicePreview({ slices, frameHeight, imageBase64, onSlicesChange }) {
     const [dragging, setDragging] = d2(null);
     const [editingId, setEditingId] = d2(null);
     const scale = PREVIEW_WIDTH / 600;
@@ -534,61 +534,70 @@
         {
           class: "preview-canvas",
           style: { width: PREVIEW_WIDTH, height: previewHeight, position: "relative", overflow: "hidden", background: "#f0f0f0", border: "1px solid #ccc" },
-          children: slices.map((slice, i3) => {
-            const top = Math.round(slice.y_start * scale);
-            const height = Math.round((slice.y_end - slice.y_start) * scale);
-            return /* @__PURE__ */ u3(
-              "div",
+          children: [
+            imageBase64 && /* @__PURE__ */ u3(
+              "img",
               {
-                style: { position: "absolute", top, left: 0, width: "100%", height, borderBottom: "2px dashed #0099ff", boxSizing: "border-box" },
-                children: [
-                  /* @__PURE__ */ u3("div", { style: { position: "absolute", top: 2, left: 4, fontSize: 10, color: "#333", display: "flex", alignItems: "center", gap: 4 }, children: [
-                    editingId === slice.id ? /* @__PURE__ */ u3(
-                      "input",
-                      {
-                        autoFocus: true,
-                        defaultValue: slice.name,
-                        style: { fontSize: 10, border: "1px solid #0099ff", padding: "1px 2px", width: 80 },
-                        onBlur: (e3) => handleRename(slice.id, e3.target.value),
-                        onKeyDown: (e3) => {
-                          if (e3.key === "Enter") handleRename(slice.id, e3.target.value);
-                          if (e3.key === "Escape") setEditingId(null);
+                src: `data:image/png;base64,${imageBase64}`,
+                style: { position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "fill", pointerEvents: "none" }
+              }
+            ),
+            slices.map((slice, i3) => {
+              const top = Math.round(slice.y_start * scale);
+              const height = Math.round((slice.y_end - slice.y_start) * scale);
+              return /* @__PURE__ */ u3(
+                "div",
+                {
+                  style: { position: "absolute", top, left: 0, width: "100%", height, borderBottom: "2px dashed #0099ff", boxSizing: "border-box" },
+                  children: [
+                    /* @__PURE__ */ u3("div", { style: { position: "absolute", top: 2, left: 4, fontSize: 10, color: "#333", display: "flex", alignItems: "center", gap: 4 }, children: [
+                      editingId === slice.id ? /* @__PURE__ */ u3(
+                        "input",
+                        {
+                          autoFocus: true,
+                          defaultValue: slice.name,
+                          style: { fontSize: 10, border: "1px solid #0099ff", padding: "1px 2px", width: 80 },
+                          onBlur: (e3) => handleRename(slice.id, e3.target.value),
+                          onKeyDown: (e3) => {
+                            if (e3.key === "Enter") handleRename(slice.id, e3.target.value);
+                            if (e3.key === "Escape") setEditingId(null);
+                          }
                         }
-                      }
-                    ) : /* @__PURE__ */ u3("span", { onDblClick: () => setEditingId(slice.id), style: { cursor: "pointer" }, children: slice.name }),
-                    slices.length > 1 && /* @__PURE__ */ u3(
-                      "button",
+                      ) : /* @__PURE__ */ u3("span", { onDblClick: () => setEditingId(slice.id), style: { cursor: "pointer" }, children: slice.name }),
+                      slices.length > 1 && /* @__PURE__ */ u3(
+                        "button",
+                        {
+                          onClick: () => handleDelete(slice.id),
+                          style: { fontSize: 9, padding: "0 3px", cursor: "pointer", background: "#ff4444", color: "#fff", border: "none", borderRadius: 2 },
+                          children: "\u2715"
+                        }
+                      )
+                    ] }),
+                    i3 < slices.length - 1 && /* @__PURE__ */ u3(
+                      "div",
                       {
-                        onClick: () => handleDelete(slice.id),
-                        style: { fontSize: 9, padding: "0 3px", cursor: "pointer", background: "#ff4444", color: "#fff", border: "none", borderRadius: 2 },
-                        children: "\u2715"
+                        style: {
+                          position: "absolute",
+                          bottom: -4,
+                          left: 0,
+                          right: 0,
+                          height: 8,
+                          cursor: "ns-resize",
+                          zIndex: 10,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center"
+                        },
+                        onMouseDown: (e3) => handleDragStart(e3, i3),
+                        children: /* @__PURE__ */ u3("div", { style: { width: 24, height: 4, background: "#0099ff", borderRadius: 2 } })
                       }
                     )
-                  ] }),
-                  i3 < slices.length - 1 && /* @__PURE__ */ u3(
-                    "div",
-                    {
-                      style: {
-                        position: "absolute",
-                        bottom: -4,
-                        left: 0,
-                        right: 0,
-                        height: 8,
-                        cursor: "ns-resize",
-                        zIndex: 10,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center"
-                      },
-                      onMouseDown: (e3) => handleDragStart(e3, i3),
-                      children: /* @__PURE__ */ u3("div", { style: { width: 24, height: 4, background: "#0099ff", borderRadius: 2 } })
-                    }
-                  )
-                ]
-              },
-              slice.id
-            );
-          })
+                  ]
+                },
+                slice.id
+              );
+            })
+          ]
         }
       ),
       /* @__PURE__ */ u3("div", { class: "preview-actions", children: [
@@ -748,6 +757,7 @@
           {
             slices,
             frameHeight: frame.height,
+            imageBase64,
             onSlicesChange: setSlices
           }
         ),

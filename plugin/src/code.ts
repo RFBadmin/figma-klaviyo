@@ -1,15 +1,15 @@
 /// <reference types="@figma/plugin-typings" />
 
 import { saveSliceData, loadSliceData } from './utils/metadata';
-import { exportSlices, uint8ArrayToBase64 } from './utils/export';
-import { getSelectedEmailFrame } from './utils/figma-api';
-import type { UIMessage, SliceData } from './types';
+import { uint8ArrayToBase64 } from './utils/export';
+import { getSelectedEmailFrames } from './utils/figma-api';
+import type { UIMessage } from './types';
 
 // ─── Plugin Init ──────────────────────────────────────────────────────────────
 
 figma.showUI(__html__, { width: 400, height: 600, title: 'Figma → Klaviyo' });
 
-// Notify UI of currently selected frame on launch
+// Notify UI of currently selected frame(s) on launch
 notifyFrameSelection();
 
 // ─── Selection Change Listener ────────────────────────────────────────────────
@@ -37,12 +37,6 @@ figma.ui.onmessage = async (msg: UIMessage) => {
           constraint: { type: 'SCALE', value: 2 }
         });
         figma.ui.postMessage({ type: 'FRAME_EXPORTED', data: uint8ArrayToBase64(bytes) });
-        break;
-      }
-
-      case 'EXPORT_SLICES': {
-        const exports = await exportSlices(msg.frameId, msg.slices);
-        figma.ui.postMessage({ type: 'EXPORT_COMPLETE', data: exports });
         break;
       }
 
@@ -97,22 +91,17 @@ figma.ui.onmessage = async (msg: UIMessage) => {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function notifyFrameSelection(): void {
-  const frame = getSelectedEmailFrame();
+  const frames = getSelectedEmailFrames();
 
-  if (frame) {
-    // Try to load existing slice data for this frame
-    const existingData = loadSliceData(frame.id);
-
-    figma.ui.postMessage({
-      type: 'FRAME_SELECTED',
-      data: {
-        id: frame.id,
-        name: frame.name,
-        width: frame.width,
-        height: frame.height,
-        existingSliceData: existingData
-      }
-    });
+  if (frames.length > 0) {
+    const data = frames.map(frame => ({
+      id: frame.id,
+      name: frame.name,
+      width: frame.width,
+      height: frame.height,
+      existingSliceData: loadSliceData(frame.id)
+    }));
+    figma.ui.postMessage({ type: 'FRAMES_SELECTED', data });
   } else {
     figma.ui.postMessage({ type: 'NO_FRAME_SELECTED' });
   }

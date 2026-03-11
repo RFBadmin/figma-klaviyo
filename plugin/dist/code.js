@@ -48,11 +48,19 @@
 
   // src/utils/export.ts
   function uint8ArrayToBase64(bytes) {
-    let binary = "";
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let result = "";
+    let i = 0;
+    while (i < bytes.length) {
+      const a = bytes[i++];
+      const b = i < bytes.length ? bytes[i++] : 0;
+      const c = i < bytes.length ? bytes[i++] : 0;
+      result += chars[a >> 2];
+      result += chars[(a & 3) << 4 | b >> 4];
+      result += i - 2 < bytes.length ? chars[(b & 15) << 2 | c >> 6] : "=";
+      result += i - 1 < bytes.length ? chars[c & 63] : "=";
     }
-    return btoa(binary);
+    return result;
   }
   function exportSlices(frameId, slices) {
     return __async(this, null, function* () {

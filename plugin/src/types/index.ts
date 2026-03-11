@@ -111,7 +111,8 @@ export interface KlaviyoCampaignConfig {
 // ─── Messages (plugin ↔ UI) ───────────────────────────────────────────────────
 
 export type PluginMessage =
-  | { type: 'FRAME_SELECTED'; data: { id: string; name: string; width: number; height: number } }
+  | { type: 'FRAMES_SELECTED'; data: Array<{ id: string; name: string; width: number; height: number; existingSliceData?: SliceData | null }> }
+  | { type: 'FRAME_SELECTED'; data: { id: string; name: string; width: number; height: number; existingSliceData?: SliceData | null } }
   | { type: 'NO_FRAME_SELECTED' }
   | { type: 'SLICE_DATA_LOADED'; data: SliceData }
   | { type: 'EXPORT_COMPLETE'; data: SliceExport[] }

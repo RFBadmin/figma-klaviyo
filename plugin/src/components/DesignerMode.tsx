@@ -97,8 +97,13 @@ export function DesignerMode({ frame }: Props) {
     setStep('compressing');
 
     try {
-      // Export each slice individually
-      const sliceExports = await exportSlicesFromParent(frame.id, slices);
+      // Use already-exported full-frame image; export if not yet available
+      let base64 = imageBase64;
+      if (!base64) {
+        base64 = await exportFullFrame(frame.id);
+        setImageBase64(base64);
+      }
+      const sliceExports = await cropSlicesFromImage(base64, slices, frame.width);
 
       const response = await fetch(`${BACKEND_URL}/api/compress`, {
         method: 'POST',
@@ -123,7 +128,7 @@ export function DesignerMode({ frame }: Props) {
       setError(msg);
       setStep('preview');
     }
-  }, [frame, slices]);
+  }, [frame, slices, imageBase64]);
 
   const saveDesign = useCallback(() => {
     if (!frame) return;
@@ -199,6 +204,7 @@ export function DesignerMode({ frame }: Props) {
           <SlicePreview
             slices={slices}
             frameHeight={frame.height}
+            imageBase64={imageBase64}
             onSlicesChange={setSlices}
           />
           <div class="action-row">
@@ -313,19 +319,38 @@ async function exportFullFrame(frameId: string): Promise<string> {
   });
 }
 
-async function exportSlicesFromParent(frameId: string, slices: Slice[]): Promise<{ id: string; image_base64: string; name: string }[]> {
+/** Crop each slice region from the full-frame image using HTML Canvas.
+ *  The image was exported at 2× scale, so we account for that. */
+async function cropSlicesFromImage(
+  imageBase64: string,
+  slices: Slice[],
+  frameWidth: number
+): Promise<{ id: string; name: string; image_base64: string }[]> {
   return new Promise((resolve, reject) => {
-    const handler = (event: MessageEvent) => {
-      const msg = event.data?.pluginMessage;
-      if (msg?.type === 'EXPORT_COMPLETE') {
-        window.removeEventListener('message', handler);
-        resolve(msg.data);
-      } else if (msg?.type === 'ERROR') {
-        window.removeEventListener('message', handler);
-        reject(new Error(msg.message));
-      }
+    const img = new Image();
+    img.onload = () => {
+      const scale = img.naturalWidth / frameWidth; // typically 2 for 2x export
+      const results = slices.map(slice => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = Math.round((slice.y_end - slice.y_start) * scale);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('Canvas 2D context unavailable');
+        ctx.drawImage(
+          img,
+          0, Math.round(slice.y_start * scale),
+          img.naturalWidth, canvas.height,
+          0, 0, canvas.width, canvas.height
+        );
+        return {
+          id: slice.id,
+          name: slice.name,
+          image_base64: canvas.toDataURL('image/png').split(',')[1]
+        };
+      });
+      resolve(results);
     };
-    window.addEventListener('message', handler);
-    parent.postMessage({ pluginMessage: { type: 'EXPORT_SLICES', frameId, slices } }, '*');
+    img.onerror = () => reject(new Error('Failed to load frame image for cropping'));
+    img.src = `data:image/png;base64,${imageBase64}`;
   });
 }

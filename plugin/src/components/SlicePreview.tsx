@@ -5,12 +5,13 @@ import type { Slice } from '../types';
 interface Props {
   slices: Slice[];
   frameHeight: number;
+  imageBase64?: string | null;
   onSlicesChange: (slices: Slice[]) => void;
 }
 
 const PREVIEW_WIDTH = 280;
 
-export function SlicePreview({ slices, frameHeight, onSlicesChange }: Props) {
+export function SlicePreview({ slices, frameHeight, imageBase64, onSlicesChange }: Props) {
   const [dragging, setDragging] = useState<{ index: number; startY: number; startEnd: number } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -109,6 +110,12 @@ export function SlicePreview({ slices, frameHeight, onSlicesChange }: Props) {
         class="preview-canvas"
         style={{ width: PREVIEW_WIDTH, height: previewHeight, position: 'relative', overflow: 'hidden', background: '#f0f0f0', border: '1px solid #ccc' }}
       >
+        {imageBase64 && (
+          <img
+            src={`data:image/png;base64,${imageBase64}`}
+            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'fill', pointerEvents: 'none' }}
+          />
+        )}
         {slices.map((slice, i) => {
           const top = Math.round(slice.y_start * scale);
           const height = Math.round((slice.y_end - slice.y_start) * scale);
