@@ -258,8 +258,8 @@ export function DesignerMode({ frames }: Props) {
         </div>
       )}
 
-      {/* Per-frame workflow panel for the active frame */}
-      {frame && (
+      {/* Per-frame workflow panel — only shown once slicing has started */}
+      {frame && state.step !== 'select' && (
         <FrameWorkflow
           frame={frame}
           state={state}

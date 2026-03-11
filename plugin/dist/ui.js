@@ -831,7 +831,7 @@
         "\u2726 Slice ",
         checkedCount > 1 ? `All ${checkedCount} Frames` : "Frame"
       ] }) }),
-      frame && /* @__PURE__ */ u3(
+      frame && state.step !== "select" && /* @__PURE__ */ u3(
         FrameWorkflow,
         {
           frame,

@@ -20,7 +20,19 @@ figma.on('currentpagechange', () => {
 // ─── Selection Change Listener ────────────────────────────────────────────────
 
 figma.on('selectionchange', () => {
-  notifyFrameSelection();
+  const selected = getSelectedEmailFrames();
+  if (selected.length > 0) {
+    const data = selected.map(frame => ({
+      id: frame.id,
+      name: frame.name,
+      width: frame.width,
+      height: frame.height,
+      existingSliceData: loadSliceData(frame.id)
+    }));
+    figma.ui.postMessage({ type: 'FRAMES_SELECTED', data });
+  } else {
+    notifyAllPageFrames();
+  }
 });
 
 // ─── Message Handler ──────────────────────────────────────────────────────────
@@ -35,11 +47,11 @@ figma.ui.onmessage = async (msg: UIMessage) => {
       }
 
       case 'GET_SELECTED_FRAME': {
-        notifyFrameSelection();
+        notifyAllPageFrames();
         break;
       }
 
-      case 'EXPORT_FRAME': {
+case 'EXPORT_FRAME': {
         const frameNode = figma.getNodeById(msg.frameId) as FrameNode;
         if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
         const bytes = await frameNode.exportAsync({
@@ -201,19 +213,3 @@ function notifyAllPageFrames(): void {
   figma.ui.postMessage({ type: 'ALL_FRAMES_LOADED', data });
 }
 
-function notifyFrameSelection(): void {
-  const frames = getSelectedEmailFrames();
-
-  if (frames.length > 0) {
-    const data = frames.map(frame => ({
-      id: frame.id,
-      name: frame.name,
-      width: frame.width,
-      height: frame.height,
-      existingSliceData: loadSliceData(frame.id)
-    }));
-    figma.ui.postMessage({ type: 'FRAMES_SELECTED', data });
-  } else {
-    figma.ui.postMessage({ type: 'NO_FRAME_SELECTED' });
-  }
-}

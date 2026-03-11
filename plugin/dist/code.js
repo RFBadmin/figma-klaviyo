@@ -109,7 +109,19 @@
         notifyAllPageFrames();
       });
       figma.on("selectionchange", () => {
-        notifyFrameSelection();
+        const selected = getSelectedEmailFrames();
+        if (selected.length > 0) {
+          const data = selected.map((frame) => ({
+            id: frame.id,
+            name: frame.name,
+            width: frame.width,
+            height: frame.height,
+            existingSliceData: loadSliceData(frame.id)
+          }));
+          figma.ui.postMessage({ type: "FRAMES_SELECTED", data });
+        } else {
+          notifyAllPageFrames();
+        }
       });
       figma.ui.onmessage = (msg) => __async(null, null, function* () {
         var _a, _b, _c, _d;
@@ -120,7 +132,7 @@
               break;
             }
             case "GET_SELECTED_FRAME": {
-              notifyFrameSelection();
+              notifyAllPageFrames();
               break;
             }
             case "EXPORT_FRAME": {
@@ -241,21 +253,6 @@
           existingSliceData: loadSliceData(frame.id)
         }));
         figma.ui.postMessage({ type: "ALL_FRAMES_LOADED", data });
-      }
-      function notifyFrameSelection() {
-        const frames = getSelectedEmailFrames();
-        if (frames.length > 0) {
-          const data = frames.map((frame) => ({
-            id: frame.id,
-            name: frame.name,
-            width: frame.width,
-            height: frame.height,
-            existingSliceData: loadSliceData(frame.id)
-          }));
-          figma.ui.postMessage({ type: "FRAMES_SELECTED", data });
-        } else {
-          figma.ui.postMessage({ type: "NO_FRAME_SELECTED" });
-        }
       }
     }
   });
