@@ -110,6 +110,12 @@ export interface KlaviyoCampaignConfig {
 
 // ─── Messages (plugin ↔ UI) ───────────────────────────────────────────────────
 
+export interface LayoutBand {
+  name: string;
+  y_start: number;
+  y_end: number;
+}
+
 export type PluginMessage =
   | { type: 'FRAMES_SELECTED'; data: Array<{ id: string; name: string; width: number; height: number; existingSliceData?: SliceData | null }> }
   | { type: 'FRAME_SELECTED'; data: { id: string; name: string; width: number; height: number; existingSliceData?: SliceData | null } }
@@ -117,10 +123,12 @@ export type PluginMessage =
   | { type: 'SLICE_DATA_LOADED'; data: SliceData }
   | { type: 'EXPORT_COMPLETE'; data: SliceExport[] }
   | { type: 'FRAME_EXPORTED'; data: string }
+  | { type: 'FRAME_LAYOUT'; bands: LayoutBand[]; frameHeight: number }
   | { type: 'ERROR'; message: string };
 
 export type UIMessage =
   | { type: 'EXPORT_FRAME'; frameId: string }
+  | { type: 'GET_FRAME_LAYOUT'; frameId: string }
   | { type: 'EXPORT_SLICES'; frameId: string; slices: Slice[] }
   | { type: 'SAVE_SLICE_DATA'; frameId: string; data: SliceData }
   | { type: 'LOAD_SLICE_DATA'; frameId: string }

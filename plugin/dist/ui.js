@@ -650,6 +650,26 @@
         return next;
       });
     }, [frames]);
+    const autoSliceFrame = q2((targetFrame) => __async(null, null, function* () {
+      patchState(targetFrame.id, { error: null, step: "analyzing" });
+      try {
+        const [base64, bands] = yield Promise.all([
+          exportFullFrame(targetFrame.id),
+          requestFrameLayout(targetFrame.id)
+        ]);
+        const newSlices = bands.map((b, i3) => ({
+          id: `slice_${Date.now()}_${i3}`,
+          name: b.name,
+          y_start: b.y_start,
+          y_end: b.y_end,
+          alt_text: b.name.replace(/_/g, " ")
+        }));
+        patchState(targetFrame.id, { imageBase64: base64, slices: newSlices, step: "preview" });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        patchState(targetFrame.id, { error: msg, step: "select" });
+      }
+    }), [patchState]);
     const analyzeFrame = q2((targetFrame) => __async(null, null, function* () {
       patchState(targetFrame.id, { error: null, step: "analyzing" });
       try {
@@ -754,6 +774,7 @@
         {
           frame,
           state,
+          onAutoSlice: () => autoSliceFrame(frame),
           onAnalyze: () => analyzeFrame(frame),
           onSlicesChange: (slices) => patchState(frame.id, { slices }),
           onCompress: () => compressAndSave(frame, state),
@@ -764,7 +785,7 @@
       )
     ] });
   }
-  function FrameWorkflow({ frame, state, onAnalyze, onSlicesChange, onCompress, onSave, onStepChange, onErrorDismiss }) {
+  function FrameWorkflow({ frame, state, onAutoSlice, onAnalyze, onSlicesChange, onCompress, onSave, onStepChange, onErrorDismiss }) {
     const { step, slices, imageBase64, compressResponse, error } = state;
     return /* @__PURE__ */ u3("div", { children: [
       error && /* @__PURE__ */ u3("div", { class: "error-banner", children: [
@@ -785,8 +806,10 @@
         ] })
       ] }),
       step === "select" && /* @__PURE__ */ u3("div", { class: "step-panel", children: [
-        /* @__PURE__ */ u3("p", { children: "Frame selected. Click analyze to detect slice boundaries using Claude Vision." }),
-        /* @__PURE__ */ u3("button", { class: "btn-primary", onClick: onAnalyze, children: "\u2726 Analyze with AI" })
+        /* @__PURE__ */ u3("p", { children: "Choose how to detect slice boundaries:" }),
+        /* @__PURE__ */ u3("button", { class: "btn-primary", onClick: onAutoSlice, children: "\u2B21 Auto-Slice from Layers" }),
+        /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: onAnalyze, children: "\u2726 Analyze with AI (Claude Vision)" }),
+        /* @__PURE__ */ u3("p", { class: "slice-hint", children: "Auto-Slice uses your Figma layers \u2014 always accurate. AI is useful when layers aren't well-organized." })
       ] }),
       step === "analyzing" && /* @__PURE__ */ u3("div", { class: "step-panel loading", children: [
         /* @__PURE__ */ u3("div", { class: "spinner" }),
@@ -803,7 +826,8 @@
           }
         ),
         /* @__PURE__ */ u3("div", { class: "action-row", children: [
-          /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: onAnalyze, children: "\u21BB Re-analyze" }),
+          /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: onAutoSlice, title: "Re-slice from Figma layers", children: "\u2B21 Layers" }),
+          /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: onAnalyze, title: "Re-analyze with Claude Vision", children: "\u2726 AI" }),
           /* @__PURE__ */ u3("button", { class: "btn-primary", onClick: onCompress, children: "Compress \u2192" })
         ] })
       ] }),
@@ -904,6 +928,23 @@
         window.addEventListener("message", handler);
         parent.postMessage({ pluginMessage: { type: "EXPORT_FRAME", frameId } }, "*");
       });
+    });
+  }
+  function requestFrameLayout(frameId) {
+    return new Promise((resolve, reject) => {
+      const handler = (event) => {
+        var _a;
+        const msg = (_a = event.data) == null ? void 0 : _a.pluginMessage;
+        if ((msg == null ? void 0 : msg.type) === "FRAME_LAYOUT") {
+          window.removeEventListener("message", handler);
+          resolve(msg.bands);
+        } else if ((msg == null ? void 0 : msg.type) === "ERROR") {
+          window.removeEventListener("message", handler);
+          reject(new Error(msg.message));
+        }
+      };
+      window.addEventListener("message", handler);
+      parent.postMessage({ pluginMessage: { type: "GET_FRAME_LAYOUT", frameId } }, "*");
     });
   }
   function cropSlicesFromImage(imageBase64, slices, frameWidth) {

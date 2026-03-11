@@ -1,7 +1,7 @@
 import { h } from 'preact';
 import { useState, useEffect, useCallback } from 'preact/hooks';
 import { SlicePreview } from './SlicePreview';
-import type { Slice, SliceData, CompressedSlice, CompressResponse } from '../types';
+import type { Slice, SliceData, CompressedSlice, CompressResponse, LayoutBand } from '../types';
 import type { FrameInfo } from '../ui';
 
 const BACKEND_URL = 'https://figma-klaviyo-production.up.railway.app';
@@ -69,6 +69,30 @@ export function DesignerMode({ frames }: Props) {
 
   // ─── Actions ──────────────────────────────────────────────────────────────
 
+  /** Primary: slice using Figma layer bounding boxes — never cuts through content */
+  const autoSliceFrame = useCallback(async (targetFrame: FrameInfo) => {
+    patchState(targetFrame.id, { error: null, step: 'analyzing' });
+    try {
+      // Export full frame image in parallel with node layout request
+      const [base64, bands] = await Promise.all([
+        exportFullFrame(targetFrame.id),
+        requestFrameLayout(targetFrame.id)
+      ]);
+      const newSlices: Slice[] = bands.map((b: LayoutBand, i: number) => ({
+        id: `slice_${Date.now()}_${i}`,
+        name: b.name,
+        y_start: b.y_start,
+        y_end: b.y_end,
+        alt_text: b.name.replace(/_/g, ' ')
+      }));
+      patchState(targetFrame.id, { imageBase64: base64, slices: newSlices, step: 'preview' });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      patchState(targetFrame.id, { error: msg, step: 'select' });
+    }
+  }, [patchState]);
+
+  /** Secondary: use Claude Vision AI to detect slice boundaries */
   const analyzeFrame = useCallback(async (targetFrame: FrameInfo) => {
     patchState(targetFrame.id, { error: null, step: 'analyzing' });
 
@@ -197,7 +221,8 @@ export function DesignerMode({ frames }: Props) {
         <FrameWorkflow
           frame={frame}
           state={state}
-          onAnalyze={() => analyzeFrame(frame)}
+          onAutoSlice={() => autoSliceFrame(frame)}
+        onAnalyze={() => analyzeFrame(frame)}
           onSlicesChange={(slices) => patchState(frame.id, { slices })}
           onCompress={() => compressAndSave(frame, state)}
           onSave={() => saveDesign(frame, state)}
@@ -214,6 +239,7 @@ export function DesignerMode({ frames }: Props) {
 interface WorkflowProps {
   frame: FrameInfo;
   state: FrameState;
+  onAutoSlice: () => void;
   onAnalyze: () => void;
   onSlicesChange: (slices: Slice[]) => void;
   onCompress: () => void;
@@ -222,7 +248,7 @@ interface WorkflowProps {
   onErrorDismiss: () => void;
 }
 
-function FrameWorkflow({ frame, state, onAnalyze, onSlicesChange, onCompress, onSave, onStepChange, onErrorDismiss }: WorkflowProps) {
+function FrameWorkflow({ frame, state, onAutoSlice, onAnalyze, onSlicesChange, onCompress, onSave, onStepChange, onErrorDismiss }: WorkflowProps) {
   const { step, slices, imageBase64, compressResponse, error } = state;
 
   return (
@@ -244,10 +270,14 @@ function FrameWorkflow({ frame, state, onAnalyze, onSlicesChange, onCompress, on
 
       {step === 'select' && (
         <div class="step-panel">
-          <p>Frame selected. Click analyze to detect slice boundaries using Claude Vision.</p>
-          <button class="btn-primary" onClick={onAnalyze}>
-            ✦ Analyze with AI
+          <p>Choose how to detect slice boundaries:</p>
+          <button class="btn-primary" onClick={onAutoSlice}>
+            ⬡ Auto-Slice from Layers
           </button>
+          <button class="btn-secondary" onClick={onAnalyze}>
+            ✦ Analyze with AI (Claude Vision)
+          </button>
+          <p class="slice-hint">Auto-Slice uses your Figma layers — always accurate. AI is useful when layers aren't well-organized.</p>
         </div>
       )}
 
@@ -267,7 +297,8 @@ function FrameWorkflow({ frame, state, onAnalyze, onSlicesChange, onCompress, on
             onSlicesChange={onSlicesChange}
           />
           <div class="action-row">
-            <button class="btn-secondary" onClick={onAnalyze}>↻ Re-analyze</button>
+            <button class="btn-secondary" onClick={onAutoSlice} title="Re-slice from Figma layers">⬡ Layers</button>
+            <button class="btn-secondary" onClick={onAnalyze} title="Re-analyze with Claude Vision">✦ AI</button>
             <button class="btn-primary" onClick={onCompress}>Compress →</button>
           </div>
         </div>
@@ -373,6 +404,24 @@ async function exportFullFrame(frameId: string): Promise<string> {
     };
     window.addEventListener('message', handler);
     parent.postMessage({ pluginMessage: { type: 'EXPORT_FRAME', frameId } }, '*');
+  });
+}
+
+/** Ask code.ts to compute slice bands from Figma node bounding boxes. */
+function requestFrameLayout(frameId: string): Promise<LayoutBand[]> {
+  return new Promise((resolve, reject) => {
+    const handler = (event: MessageEvent) => {
+      const msg = event.data?.pluginMessage;
+      if (msg?.type === 'FRAME_LAYOUT') {
+        window.removeEventListener('message', handler);
+        resolve(msg.bands);
+      } else if (msg?.type === 'ERROR') {
+        window.removeEventListener('message', handler);
+        reject(new Error(msg.message));
+      }
+    };
+    window.addEventListener('message', handler);
+    parent.postMessage({ pluginMessage: { type: 'GET_FRAME_LAYOUT', frameId } }, '*');
   });
 }
 

@@ -40,6 +40,15 @@ figma.ui.onmessage = async (msg: UIMessage) => {
         break;
       }
 
+      case 'GET_FRAME_LAYOUT': {
+        const layoutFrame = figma.getNodeById(msg.frameId) as FrameNode;
+        if (!layoutFrame) throw new Error(`Frame ${msg.frameId} not found`);
+        const frameAbsY = layoutFrame.absoluteBoundingBox?.y ?? 0;
+        const bands = computeSliceBands(layoutFrame, frameAbsY, layoutFrame.height);
+        figma.ui.postMessage({ type: 'FRAME_LAYOUT', bands, frameHeight: layoutFrame.height });
+        break;
+      }
+
       case 'SAVE_SLICE_DATA': {
         saveSliceData(msg.frameId, msg.data);
         figma.ui.postMessage({ type: 'SLICE_DATA_SAVED' });
@@ -89,6 +98,91 @@ figma.ui.onmessage = async (msg: UIMessage) => {
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// ─── Node-based Slice Band Computation ───────────────────────────────────────
+
+/**
+ * Walk the frame's children (recursing into groups/frames if needed) and
+ * return merged vertical bands that correspond to natural slice boundaries.
+ * Never cuts through content — uses actual node bounding boxes.
+ */
+function computeSliceBands(
+  frame: FrameNode,
+  frameAbsY: number,
+  frameHeight: number
+): Array<{ name: string; y_start: number; y_end: number }> {
+  const raw = collectChildBands(frame.children, frameAbsY, frameHeight);
+
+  // If the whole frame collapsed into ≤1 band (e.g. one giant group), recurse one level deeper
+  if (raw.length <= 1 && frame.children.length === 1) {
+    const only = frame.children[0];
+    if ('children' in only) {
+      const deeper = collectChildBands((only as FrameNode).children, frameAbsY, frameHeight);
+      if (deeper.length > 1) raw.splice(0, raw.length, ...deeper);
+    }
+  }
+
+  // Sort by y_start
+  raw.sort((a, b) => a.y_start - b.y_start);
+
+  // Merge overlapping / nearly-adjacent bands (≤4 px gap)
+  const merged: typeof raw = [];
+  for (const band of raw) {
+    if (merged.length === 0) {
+      merged.push({ ...band });
+    } else {
+      const last = merged[merged.length - 1];
+      if (band.y_start <= last.y_end + 4) {
+        last.y_end = Math.max(last.y_end, band.y_end);
+      } else {
+        merged.push({ ...band });
+      }
+    }
+  }
+
+  if (merged.length === 0) {
+    return [{ name: 'full_email', y_start: 0, y_end: frameHeight }];
+  }
+
+  // Fill any uncovered gaps (padding above/below/between content)
+  const filled: typeof merged = [];
+  if (merged[0].y_start > 0) {
+    filled.push({ name: 'top_spacer', y_start: 0, y_end: merged[0].y_start });
+  }
+  for (let i = 0; i < merged.length; i++) {
+    filled.push(merged[i]);
+    if (i + 1 < merged.length && merged[i].y_end < merged[i + 1].y_start) {
+      filled.push({ name: 'spacer', y_start: merged[i].y_end, y_end: merged[i + 1].y_start });
+    }
+  }
+  const last = merged[merged.length - 1];
+  if (last.y_end < frameHeight) {
+    filled.push({ name: 'bottom_spacer', y_start: last.y_end, y_end: frameHeight });
+  }
+
+  return filled;
+}
+
+function collectChildBands(
+  children: ReadonlyArray<SceneNode>,
+  frameAbsY: number,
+  frameHeight: number
+): Array<{ name: string; y_start: number; y_end: number }> {
+  const bands: Array<{ name: string; y_start: number; y_end: number }> = [];
+  for (const child of children) {
+    if (!child.visible) continue;
+    const bbox = child.absoluteBoundingBox;
+    if (!bbox) continue;
+    const y_start = Math.max(0, Math.round(bbox.y - frameAbsY));
+    const y_end = Math.min(frameHeight, Math.round(bbox.y - frameAbsY + bbox.height));
+    if (y_end > y_start) {
+      bands.push({ name: child.name, y_start, y_end });
+    }
+  }
+  return bands;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 function notifyFrameSelection(): void {
   const frames = getSelectedEmailFrames();

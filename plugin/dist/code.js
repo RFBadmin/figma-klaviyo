@@ -1,6 +1,22 @@
 "use strict";
 (() => {
+  var __defProp = Object.defineProperty;
   var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __getOwnPropSymbols = Object.getOwnPropertySymbols;
+  var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __propIsEnum = Object.prototype.propertyIsEnumerable;
+  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+  var __spreadValues = (a, b) => {
+    for (var prop in b || (b = {}))
+      if (__hasOwnProp.call(b, prop))
+        __defNormalProp(a, prop, b[prop]);
+    if (__getOwnPropSymbols)
+      for (var prop of __getOwnPropSymbols(b)) {
+        if (__propIsEnum.call(b, prop))
+          __defNormalProp(a, prop, b[prop]);
+      }
+    return a;
+  };
   var __esm = (fn, res) => function __init() {
     return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
   };
@@ -90,7 +106,7 @@
         notifyFrameSelection();
       });
       figma.ui.onmessage = (msg) => __async(null, null, function* () {
-        var _a, _b;
+        var _a, _b, _c, _d;
         try {
           switch (msg.type) {
             case "GET_SELECTED_FRAME": {
@@ -105,6 +121,14 @@
                 constraint: { type: "SCALE", value: 2 }
               });
               figma.ui.postMessage({ type: "FRAME_EXPORTED", data: uint8ArrayToBase64(bytes) });
+              break;
+            }
+            case "GET_FRAME_LAYOUT": {
+              const layoutFrame = figma.getNodeById(msg.frameId);
+              if (!layoutFrame) throw new Error(`Frame ${msg.frameId} not found`);
+              const frameAbsY = (_b = (_a = layoutFrame.absoluteBoundingBox) == null ? void 0 : _a.y) != null ? _b : 0;
+              const bands = computeSliceBands(layoutFrame, frameAbsY, layoutFrame.height);
+              figma.ui.postMessage({ type: "FRAME_LAYOUT", bands, frameHeight: layoutFrame.height });
               break;
             }
             case "SAVE_SLICE_DATA": {
@@ -124,7 +148,7 @@
             case "GET_USER_INFO": {
               figma.ui.postMessage({
                 type: "USER_INFO",
-                name: (_b = (_a = figma.currentUser) == null ? void 0 : _a.name) != null ? _b : "Unknown"
+                name: (_d = (_c = figma.currentUser) == null ? void 0 : _c.name) != null ? _d : "Unknown"
               });
               break;
             }
@@ -148,6 +172,62 @@
           figma.ui.postMessage({ type: "ERROR", message });
         }
       });
+      function computeSliceBands(frame, frameAbsY, frameHeight) {
+        const raw = collectChildBands(frame.children, frameAbsY, frameHeight);
+        if (raw.length <= 1 && frame.children.length === 1) {
+          const only = frame.children[0];
+          if ("children" in only) {
+            const deeper = collectChildBands(only.children, frameAbsY, frameHeight);
+            if (deeper.length > 1) raw.splice(0, raw.length, ...deeper);
+          }
+        }
+        raw.sort((a, b) => a.y_start - b.y_start);
+        const merged = [];
+        for (const band of raw) {
+          if (merged.length === 0) {
+            merged.push(__spreadValues({}, band));
+          } else {
+            const last2 = merged[merged.length - 1];
+            if (band.y_start <= last2.y_end + 4) {
+              last2.y_end = Math.max(last2.y_end, band.y_end);
+            } else {
+              merged.push(__spreadValues({}, band));
+            }
+          }
+        }
+        if (merged.length === 0) {
+          return [{ name: "full_email", y_start: 0, y_end: frameHeight }];
+        }
+        const filled = [];
+        if (merged[0].y_start > 0) {
+          filled.push({ name: "top_spacer", y_start: 0, y_end: merged[0].y_start });
+        }
+        for (let i = 0; i < merged.length; i++) {
+          filled.push(merged[i]);
+          if (i + 1 < merged.length && merged[i].y_end < merged[i + 1].y_start) {
+            filled.push({ name: "spacer", y_start: merged[i].y_end, y_end: merged[i + 1].y_start });
+          }
+        }
+        const last = merged[merged.length - 1];
+        if (last.y_end < frameHeight) {
+          filled.push({ name: "bottom_spacer", y_start: last.y_end, y_end: frameHeight });
+        }
+        return filled;
+      }
+      function collectChildBands(children, frameAbsY, frameHeight) {
+        const bands = [];
+        for (const child of children) {
+          if (!child.visible) continue;
+          const bbox = child.absoluteBoundingBox;
+          if (!bbox) continue;
+          const y_start = Math.max(0, Math.round(bbox.y - frameAbsY));
+          const y_end = Math.min(frameHeight, Math.round(bbox.y - frameAbsY + bbox.height));
+          if (y_end > y_start) {
+            bands.push({ name: child.name, y_start, y_end });
+          }
+        }
+        return bands;
+      }
       function notifyFrameSelection() {
         const frames = getSelectedEmailFrames();
         if (frames.length > 0) {
