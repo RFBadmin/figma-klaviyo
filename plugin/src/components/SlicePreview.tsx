@@ -54,23 +54,23 @@ export function SlicePreview({ slices, frameHeight, imageBase64, onSlicesChange 
     window.addEventListener('mouseup', onUp);
   }, [slices, frameHeight, scale, onSlicesChange]);
 
-  const handleAddSlice = useCallback(() => {
-    if (slices.length === 0) return;
-    const last = slices[slices.length - 1];
-    const midY = Math.round((last.y_start + last.y_end) / 2);
+  const handleSplitSlice = useCallback((index: number) => {
+    const slice = slices[index];
+    if (slice.y_end - slice.y_start < 40) return;
+    const midY = Math.round((slice.y_start + slice.y_end) / 2);
 
     const newSlice: Slice = {
       id: `slice_${Date.now()}`,
       name: `section_${slices.length + 1}`,
       y_start: midY,
-      y_end: last.y_end,
+      y_end: slice.y_end,
       alt_text: 'New section'
     };
-
     const updated = [
-      ...slices.slice(0, -1),
-      { ...last, y_end: midY },
-      newSlice
+      ...slices.slice(0, index),
+      { ...slice, y_end: midY },
+      newSlice,
+      ...slices.slice(index + 1)
     ];
     onSlicesChange(updated);
   }, [slices, onSlicesChange]);
@@ -149,6 +149,20 @@ export function SlicePreview({ slices, frameHeight, imageBase64, onSlicesChange 
                 )}
               </div>
 
+              {/* Side split button */}
+              <button
+                onClick={(e) => { e.stopPropagation(); handleSplitSlice(i); }}
+                title="Split this slice"
+                style={{
+                  position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)',
+                  width: 16, height: 16, borderRadius: '50%',
+                  background: '#0099ff', color: '#fff', border: 'none',
+                  fontSize: 14, lineHeight: '16px', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  opacity: 0.8, zIndex: 5, padding: 0
+                }}
+              >+</button>
+
               {/* Drag handle (on boundary below, except last slice) */}
               {i < slices.length - 1 && (
                 <div
@@ -166,8 +180,8 @@ export function SlicePreview({ slices, frameHeight, imageBase64, onSlicesChange 
         })}
       </div>
 
+      <div class="slice-hint">Click + on any slice to split it • Drag blue handles to adjust • Double-click label to rename</div>
       <div class="preview-actions">
-        <button onClick={handleAddSlice}>+ Add Slice</button>
         <button onClick={handleReanalyze}>↻ Re-analyze</button>
         <button onClick={() => window.dispatchEvent(new CustomEvent('resetSlices'))}>Reset</button>
       </div>

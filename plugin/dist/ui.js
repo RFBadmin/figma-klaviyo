@@ -481,21 +481,22 @@
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
     }, [slices, frameHeight, scale, onSlicesChange]);
-    const handleAddSlice = q2(() => {
-      if (slices.length === 0) return;
-      const last = slices[slices.length - 1];
-      const midY = Math.round((last.y_start + last.y_end) / 2);
+    const handleSplitSlice = q2((index) => {
+      const slice = slices[index];
+      if (slice.y_end - slice.y_start < 40) return;
+      const midY = Math.round((slice.y_start + slice.y_end) / 2);
       const newSlice = {
         id: `slice_${Date.now()}`,
         name: `section_${slices.length + 1}`,
         y_start: midY,
-        y_end: last.y_end,
+        y_end: slice.y_end,
         alt_text: "New section"
       };
       const updated = [
-        ...slices.slice(0, -1),
-        __spreadProps(__spreadValues({}, last), { y_end: midY }),
-        newSlice
+        ...slices.slice(0, index),
+        __spreadProps(__spreadValues({}, slice), { y_end: midY }),
+        newSlice,
+        ...slices.slice(index + 1)
       ];
       onSlicesChange(updated);
     }, [slices, onSlicesChange]);
@@ -573,6 +574,38 @@
                         }
                       )
                     ] }),
+                    /* @__PURE__ */ u3(
+                      "button",
+                      {
+                        onClick: (e3) => {
+                          e3.stopPropagation();
+                          handleSplitSlice(i3);
+                        },
+                        title: "Split this slice",
+                        style: {
+                          position: "absolute",
+                          right: 2,
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          width: 16,
+                          height: 16,
+                          borderRadius: "50%",
+                          background: "#0099ff",
+                          color: "#fff",
+                          border: "none",
+                          fontSize: 14,
+                          lineHeight: "16px",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          opacity: 0.8,
+                          zIndex: 5,
+                          padding: 0
+                        },
+                        children: "+"
+                      }
+                    ),
                     i3 < slices.length - 1 && /* @__PURE__ */ u3(
                       "div",
                       {
@@ -600,8 +633,8 @@
           ]
         }
       ),
+      /* @__PURE__ */ u3("div", { class: "slice-hint", children: "Click + on any slice to split it \u2022 Drag blue handles to adjust \u2022 Double-click label to rename" }),
       /* @__PURE__ */ u3("div", { class: "preview-actions", children: [
-        /* @__PURE__ */ u3("button", { onClick: handleAddSlice, children: "+ Add Slice" }),
         /* @__PURE__ */ u3("button", { onClick: handleReanalyze, children: "\u21BB Re-analyze" }),
         /* @__PURE__ */ u3("button", { onClick: () => window.dispatchEvent(new CustomEvent("resetSlices")), children: "Reset" })
       ] })
