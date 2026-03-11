@@ -1,0 +1,129 @@
+// ─── Slice & Design Data ──────────────────────────────────────────────────────
+
+export interface Slice {
+  id: string;
+  name: string;
+  y_start: number;
+  y_end: number;
+  alt_text: string;
+  compressed_url?: string;
+  klaviyo_url?: string;
+  link?: string;
+}
+
+export interface SliceData {
+  version: string;
+  created_by: string;
+  created_at: string;
+  frame_id: string;
+  frame_name: string;
+  slices: Slice[];
+  status: 'draft' | 'ready' | 'pushed';
+}
+
+export interface SliceExport {
+  id: string;
+  name: string;
+  image_base64: string;
+  width: number;
+  height: number;
+}
+
+// ─── Compression ──────────────────────────────────────────────────────────────
+
+export interface CompressedSlice {
+  id: string;
+  name: string;
+  original_size: number;
+  compressed_size: number;
+  reduction_percent: number;
+  width: number;
+  height: number;
+  format: string;
+  status: 'optimal' | 'good' | 'warning' | 'failed';
+  warnings: string[];
+  temp_url: string;
+}
+
+export interface CompressionSummary {
+  total_original: number;
+  total_compressed: number;
+  total_reduction_percent: number;
+  slice_count: number;
+  passed_count: number;
+  warning_count: number;
+  failed_count: number;
+}
+
+export interface CompressionValidation {
+  total_size_kb: number;
+  target_kb: number;
+  status: 'passed' | 'warning' | 'failed';
+  message: string;
+}
+
+export interface CompressionRecommendation {
+  slice: string;
+  issue: string;
+  suggestion: string;
+}
+
+export interface CompressResponse {
+  compressed: CompressedSlice[];
+  summary: CompressionSummary;
+  validation: CompressionValidation;
+  recommendations: CompressionRecommendation[];
+}
+
+// ─── Validation ───────────────────────────────────────────────────────────────
+
+export interface SliceValidation {
+  maxFileSize: number;   // 200KB hard limit
+  warnFileSize: number;  // 100KB warning threshold
+  minHeight: number;     // prevent micro-slices
+  totalEmailTarget: number;
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+// ─── Klaviyo ──────────────────────────────────────────────────────────────────
+
+export interface KlaviyoList {
+  id: string;
+  name: string;
+  member_count: number;
+}
+
+export interface KlaviyoCampaignConfig {
+  mode: 'template' | 'campaign';
+  templateName: string;
+  campaignName: string;
+  subject: string;
+  previewText: string;
+  listId: string;
+  sendTime?: string;
+}
+
+// ─── Messages (plugin ↔ UI) ───────────────────────────────────────────────────
+
+export type PluginMessage =
+  | { type: 'FRAME_SELECTED'; data: { id: string; name: string; width: number; height: number } }
+  | { type: 'NO_FRAME_SELECTED' }
+  | { type: 'SLICE_DATA_LOADED'; data: SliceData }
+  | { type: 'EXPORT_COMPLETE'; data: SliceExport[] }
+  | { type: 'ERROR'; message: string };
+
+export type UIMessage =
+  | { type: 'EXPORT_SLICES'; frameId: string; slices: Slice[] }
+  | { type: 'SAVE_SLICE_DATA'; frameId: string; data: SliceData }
+  | { type: 'LOAD_SLICE_DATA'; frameId: string }
+  | { type: 'GET_SELECTED_FRAME' }
+  | { type: 'RESIZE_PLUGIN'; width: number; height: number }
+  | { type: 'SAVE_KLAVIYO_KEY'; key: string }
+  | { type: 'GET_KLAVIYO_KEY' }
+  | { type: 'GET_USER_INFO' }
+  | { type: 'CLOSE_PLUGIN' };
