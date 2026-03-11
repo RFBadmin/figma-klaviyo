@@ -144,23 +144,18 @@ function computeSliceBands(
     return [{ name: 'full_email', y_start: 0, y_end: frameHeight }];
   }
 
-  // Fill any uncovered gaps (padding above/below/between content)
-  const filled: typeof merged = [];
-  if (merged[0].y_start > 0) {
-    filled.push({ name: 'top_spacer', y_start: 0, y_end: merged[0].y_start });
+  // Absorb gaps into adjacent bands instead of creating spacer slices:
+  // first band starts at 0, each band's end extends to meet the next band's start,
+  // and the last band ends at frameHeight.
+  merged[0].y_start = 0;
+  for (let i = 0; i < merged.length - 1; i++) {
+    const mid = Math.round((merged[i].y_end + merged[i + 1].y_start) / 2);
+    merged[i].y_end = mid;
+    merged[i + 1].y_start = mid;
   }
-  for (let i = 0; i < merged.length; i++) {
-    filled.push(merged[i]);
-    if (i + 1 < merged.length && merged[i].y_end < merged[i + 1].y_start) {
-      filled.push({ name: 'spacer', y_start: merged[i].y_end, y_end: merged[i + 1].y_start });
-    }
-  }
-  const last = merged[merged.length - 1];
-  if (last.y_end < frameHeight) {
-    filled.push({ name: 'bottom_spacer', y_start: last.y_end, y_end: frameHeight });
-  }
+  merged[merged.length - 1].y_end = frameHeight;
 
-  return filled;
+  return merged;
 }
 
 function collectChildBands(
