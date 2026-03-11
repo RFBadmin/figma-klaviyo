@@ -3,24 +3,24 @@ import json
 import re
 
 
-SLICE_PROMPT = """You are analyzing an email design image to determine where to slice it into horizontal image strips for HTML email.
+SLICE_PROMPT = """You are slicing an email design image into horizontal strips for HTML email export.
 
-The ONLY reason to create a new slice is if that area needs a DIFFERENT redirect link than the area above it.
-Ask yourself: "Would someone click this area to go somewhere different?"
+HOW SLICING WORKS:
+- Slices are horizontal bands only — full width, stacked top to bottom
+- Everything within a vertical band becomes ONE image, no matter how complex
+- A button overlaid on an image → same slice as that image
+- Multiple images side by side in a row → one slice (the whole row)
+- Text on top of a background → same slice as that background
 
-SLICE WHEN:
-- A logo or header banner (links to homepage)
-- A hero image or product photo (links to product/offer page)
-- A CTA button or "Shop Now" / "Learn More" link (links to landing page)
-- A product row or grid (each row may link to different products)
-- A footer (links to unsubscribe/preferences)
+WHEN TO CUT:
+Look for clear horizontal breaks — places where the design visually separates into an independent row. A cut is valid when the content ABOVE it and the content BELOW it are clearly separate visual rows with no overlap between them.
 
-DO NOT SLICE:
-- Plain body text paragraphs (no link needed — keep as part of the surrounding slice)
-- Decorative dividers or spacers (absorb into adjacent slice)
-- Every tiny visual change — only slice where the LINK destination changes
+WHEN NOT TO CUT:
+- Do not cut through any element (image, text, button, icon) — even partially
+- Do not cut inside a visual composition where elements overlap vertically
+- Do not create tiny slices for thin lines or gaps — absorb them into adjacent bands
 
-Keep it minimal: most emails need only 3–6 slices.
+Keep slices minimal. A complex email with many elements might still only need 3–8 slices if the elements are layered or close together. Do not try to isolate every individual element.
 
 Image dimensions: {width}px × {height}px
 
@@ -28,13 +28,13 @@ Return ONLY valid JSON (no markdown):
 {{
   "slices": [
     {{
-      "name": "section_name",
+      "name": "descriptive_name",
       "y_start": 0,
       "y_end": 150,
       "alt_text": "Brief description"
     }}
   ],
-  "analysis": "One sentence explaining the slicing decisions"
+  "analysis": "One sentence explaining where you cut and why"
 }}
 
 REQUIREMENTS:

@@ -125,14 +125,14 @@ function computeSliceBands(
   // Sort by y_start
   raw.sort((a, b) => a.y_start - b.y_start);
 
-  // Merge overlapping / nearly-adjacent bands (≤4 px gap)
+  // Merge overlapping / nearly-adjacent bands (≤8 px gap)
   const merged: typeof raw = [];
   for (const band of raw) {
     if (merged.length === 0) {
       merged.push({ ...band });
     } else {
       const last = merged[merged.length - 1];
-      if (band.y_start <= last.y_end + 4) {
+      if (band.y_start <= last.y_end + 8) {
         last.y_end = Math.max(last.y_end, band.y_end);
       } else {
         merged.push({ ...band });

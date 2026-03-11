@@ -188,7 +188,7 @@
             merged.push(__spreadValues({}, band));
           } else {
             const last = merged[merged.length - 1];
-            if (band.y_start <= last.y_end + 4) {
+            if (band.y_start <= last.y_end + 8) {
               last.y_end = Math.max(last.y_end, band.y_end);
             } else {
               merged.push(__spreadValues({}, band));
