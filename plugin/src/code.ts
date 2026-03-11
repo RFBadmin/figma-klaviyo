@@ -2,15 +2,20 @@
 
 import { saveSliceData, loadSliceData } from './utils/metadata';
 import { uint8ArrayToBase64 } from './utils/export';
-import { getSelectedEmailFrames } from './utils/figma-api';
+import { getSelectedEmailFrames, getAllEmailFrames } from './utils/figma-api';
 import type { UIMessage } from './types';
 
 // ─── Plugin Init ──────────────────────────────────────────────────────────────
 
 figma.showUI(__html__, { width: 400, height: 600, title: 'Figma → Klaviyo' });
 
-// Notify UI of currently selected frame(s) on launch
-notifyFrameSelection();
+// Notify UI of all email frames on the current page on launch
+notifyAllPageFrames();
+
+// Refresh frame list when the user switches pages
+figma.on('currentpagechange', () => {
+  notifyAllPageFrames();
+});
 
 // ─── Selection Change Listener ────────────────────────────────────────────────
 
@@ -23,6 +28,11 @@ figma.on('selectionchange', () => {
 figma.ui.onmessage = async (msg: UIMessage) => {
   try {
     switch (msg.type) {
+
+      case 'GET_ALL_FRAMES': {
+        notifyAllPageFrames();
+        break;
+      }
 
       case 'GET_SELECTED_FRAME': {
         notifyFrameSelection();
@@ -178,6 +188,18 @@ function collectChildBands(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+
+function notifyAllPageFrames(): void {
+  const frames = getAllEmailFrames();
+  const data = frames.map(frame => ({
+    id: frame.id,
+    name: frame.name,
+    width: frame.width,
+    height: frame.height,
+    existingSliceData: loadSliceData(frame.id)
+  }));
+  figma.ui.postMessage({ type: 'ALL_FRAMES_LOADED', data });
+}
 
 function notifyFrameSelection(): void {
   const frames = getSelectedEmailFrames();

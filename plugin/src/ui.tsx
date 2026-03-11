@@ -25,7 +25,13 @@ function App() {
       if (!msg) return;
 
       switch (msg.type) {
+        case 'ALL_FRAMES_LOADED':
+          setFrames(msg.data);
+          setNoFrameWarning(false);
+          break;
+
         case 'FRAMES_SELECTED':
+          // Kept for TechMode compatibility
           setFrames(msg.data);
           setNoFrameWarning(false);
           break;
@@ -37,13 +43,12 @@ function App() {
           break;
 
         case 'NO_FRAME_SELECTED':
-          setFrames([]);
           setNoFrameWarning(true);
           break;
       }
     };
 
-    parent.postMessage({ pluginMessage: { type: 'GET_SELECTED_FRAME' } }, '*');
+    parent.postMessage({ pluginMessage: { type: 'GET_ALL_FRAMES' } }, '*');
   }, []);
 
   return (
@@ -67,12 +72,6 @@ function App() {
           Tech 🔒
         </button>
       </nav>
-
-      {noFrameWarning && (
-        <div class="frame-warning">
-          Select one or more email frames (500–700px wide) to get started.
-        </div>
-      )}
 
       <main class="plugin-content">
         {mode === 'designer'

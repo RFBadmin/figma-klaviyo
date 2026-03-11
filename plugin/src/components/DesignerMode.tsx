@@ -33,10 +33,8 @@ interface Props {
 export function DesignerMode({ frames }: Props) {
   const [activeFrameId, setActiveFrameId] = useState<string | null>(null);
   const [frameStates, setFrameStates] = useState<Record<string, FrameState>>({});
-
-  // Active frame object
-  const frame = frames.find(f => f.id === activeFrameId) ?? frames[0] ?? null;
-  const state: FrameState = frame ? (frameStates[frame.id] ?? defaultState()) : defaultState();
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
 
   const patchState = useCallback((frameId: string, patch: Partial<FrameState>) => {
     setFrameStates(prev => ({
@@ -45,10 +43,12 @@ export function DesignerMode({ frames }: Props) {
     }));
   }, []);
 
-  // When frames list changes: keep active frame if still present, else pick first;
-  // initialize state for frames with existing slice data.
+  // When frames list changes: set all checked by default, keep active frame if still present.
   useEffect(() => {
     if (frames.length === 0) return;
+
+    // Check all frames by default
+    setCheckedIds(new Set(frames.map(f => f.id)));
 
     // Keep current active frame if still in list, else switch to first
     setActiveFrameId(prev =>
@@ -65,11 +65,14 @@ export function DesignerMode({ frames }: Props) {
       });
       return next;
     });
-  }, [frames]);
+  }, [frames.map(f => f.id).join(',')]);
+
+  // Active frame object
+  const frame = frames.find(f => f.id === activeFrameId) ?? frames[0] ?? null;
+  const state: FrameState = frame ? (frameStates[frame.id] ?? defaultState()) : defaultState();
 
   // ─── Actions ──────────────────────────────────────────────────────────────
 
-  /** Slice the frame: layer positions (exact) + AI grouping (smart names & merging) */
   const sliceFrame = useCallback(async (targetFrame: FrameInfo) => {
     patchState(targetFrame.id, { error: null, step: 'analyzing' });
     try {
@@ -107,6 +110,18 @@ export function DesignerMode({ frames }: Props) {
       patchState(targetFrame.id, { error: msg, step: 'select' });
     }
   }, [patchState]);
+
+  const sliceAllChecked = useCallback(async () => {
+    const targets = frames.filter(f => checkedIds.has(f.id));
+    if (targets.length === 0) return;
+    setBatchProgress({ current: 0, total: targets.length });
+    for (let i = 0; i < targets.length; i++) {
+      setBatchProgress({ current: i, total: targets.length });
+      setActiveFrameId(targets[i].id);
+      await sliceFrame(targets[i]);
+    }
+    setBatchProgress(null);
+  }, [checkedIds, frames, sliceFrame]);
 
   const compressAndSave = useCallback(async (targetFrame: FrameInfo, currentState: FrameState) => {
     if (currentState.slices.length === 0) return;
@@ -171,32 +186,79 @@ export function DesignerMode({ frames }: Props) {
   if (frames.length === 0) {
     return (
       <div class="empty-state">
-        <p>Select one or more email frames (500–700px wide) to get started.</p>
+        <p>No email frames found on this page.<br />Add a frame 500–700px wide to get started.</p>
       </div>
     );
   }
 
+  const isBatching = batchProgress !== null;
+  const checkedCount = checkedIds.size;
+
   return (
     <div class="designer-mode">
-      {/* Frame picker — shown when multiple frames are selected */}
-      {frames.length > 1 && (
-        <div class="frame-picker">
-          {frames.map(f => {
-            const fs = frameStates[f.id] ?? defaultState();
-            return (
-              <button
-                key={f.id}
-                class={`frame-pill ${f.id === frame?.id ? 'active' : ''} ${fs.step === 'saved' ? 'done' : ''}`}
-                onClick={() => setActiveFrameId(f.id)}
-                title={`${f.name} (${f.width}×${f.height}px)`}
-              >
-                {fs.step === 'saved' ? '✓ ' : ''}{f.name}
-              </button>
-            );
-          })}
+      {/* Batch progress bar */}
+      {batchProgress && (
+        <div class="batch-progress">
+          <div
+            class="batch-bar"
+            style={{ width: `${Math.round((batchProgress.current / batchProgress.total) * 100)}%` }}
+          />
+          <span>Slicing {batchProgress.current + 1} of {batchProgress.total}…</span>
         </div>
       )}
 
+      {/* Frame checklist */}
+      <div class="frame-checklist">
+        <div class="checklist-header">
+          <span>{checkedCount} of {frames.length} frame{frames.length !== 1 ? 's' : ''} selected</span>
+          <div>
+            <button onClick={() => setCheckedIds(new Set(frames.map(f => f.id)))}>All</button>
+            <button onClick={() => setCheckedIds(new Set())}>None</button>
+          </div>
+        </div>
+        {frames.map(f => {
+          const fs = frameStates[f.id] ?? defaultState();
+          const isChecked = checkedIds.has(f.id);
+          const isActive = f.id === frame?.id;
+          return (
+            <label
+              key={f.id}
+              class={`frame-check-item ${isChecked ? 'checked' : ''} ${isActive ? 'active-frame' : ''}`}
+              onClick={() => setActiveFrameId(f.id)}
+            >
+              <input
+                type="checkbox"
+                checked={isChecked}
+                onChange={(e) => {
+                  (e as Event).stopPropagation();
+                  setCheckedIds(prev => {
+                    const next = new Set(prev);
+                    next.has(f.id) ? next.delete(f.id) : next.add(f.id);
+                    return next;
+                  });
+                }}
+              />
+              <span class="frame-check-name" title={f.name}>{f.name}</span>
+              <span class="frame-check-dims">{f.width}×{f.height}</span>
+              {fs.step === 'saved' && <span class="frame-check-done">✓</span>}
+              {(fs.step === 'analyzing' || fs.step === 'compressing') && (
+                <span class="frame-check-spinner" />
+              )}
+            </label>
+          );
+        })}
+      </div>
+
+      {/* Slice all checked button */}
+      {checkedCount > 0 && !isBatching && (
+        <div class="action-row" style={{ marginBottom: '8px' }}>
+          <button class="btn-primary" style={{ flex: 1 }} onClick={sliceAllChecked}>
+            ✦ Slice {checkedCount > 1 ? `All ${checkedCount} Frames` : 'Frame'}
+          </button>
+        </div>
+      )}
+
+      {/* Per-frame workflow panel for the active frame */}
       {frame && (
         <FrameWorkflow
           frame={frame}
@@ -249,7 +311,7 @@ function FrameWorkflow({ frame, state, onSlice, onSlicesChange, onCompress, onSa
       {step === 'select' && (
         <div class="step-panel">
           <button class="btn-primary" onClick={onSlice}>
-            ✦ Slice Design
+            ✦ Slice This Frame
           </button>
         </div>
       )}

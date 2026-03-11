@@ -117,6 +117,7 @@ export interface LayoutBand {
 }
 
 export type PluginMessage =
+  | { type: 'ALL_FRAMES_LOADED'; data: Array<{ id: string; name: string; width: number; height: number; existingSliceData?: SliceData | null }> }
   | { type: 'FRAMES_SELECTED'; data: Array<{ id: string; name: string; width: number; height: number; existingSliceData?: SliceData | null }> }
   | { type: 'FRAME_SELECTED'; data: { id: string; name: string; width: number; height: number; existingSliceData?: SliceData | null } }
   | { type: 'NO_FRAME_SELECTED' }
@@ -127,6 +128,7 @@ export type PluginMessage =
   | { type: 'ERROR'; message: string };
 
 export type UIMessage =
+  | { type: 'GET_ALL_FRAMES' }
   | { type: 'EXPORT_FRAME'; frameId: string }
   | { type: 'GET_FRAME_LAYOUT'; frameId: string }
   | { type: 'EXPORT_SLICES'; frameId: string; slices: Slice[] }

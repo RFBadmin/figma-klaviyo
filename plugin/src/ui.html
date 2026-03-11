@@ -125,6 +125,25 @@
     /* ── HTML Preview ────────────────────────────────────── */
     .html-preview { border: 1px solid #ddd; border-radius: 4px; overflow: hidden; }
     .html-preview .preview-header { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: #f5f5f5; border-bottom: 1px solid #ddd; font-size: 11px; font-weight: 600; }
+
+    /* ── Frame Checklist ─────────────────────────────────── */
+    .frame-checklist { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+    .checklist-header { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #666; padding: 4px 0 6px; }
+    .checklist-header button { font-size: 10px; padding: 2px 6px; background: #f0f0f0; border: 1px solid #ddd; border-radius: 3px; margin-left: 4px; }
+    .checklist-header button:hover { background: #e5e5e5; }
+    .frame-check-item { display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 4px; cursor: pointer; font-size: 11px; border: 1px solid transparent; user-select: none; }
+    .frame-check-item:hover { background: #f5f5f5; }
+    .frame-check-item.checked { background: #f0f8ff; border-color: #b3d9ff; }
+    .frame-check-item.active-frame { outline: 2px solid #0099ff; outline-offset: -1px; }
+    .frame-check-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .frame-check-dims { color: #999; font-size: 10px; white-space: nowrap; }
+    .frame-check-done { color: #22a06b; font-weight: 700; font-size: 11px; }
+    .frame-check-spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid #e5e5e5; border-top-color: #0099ff; border-radius: 50%; animation: spin 0.7s linear infinite; }
+
+    /* ── Batch Progress ──────────────────────────────────── */
+    .batch-progress { position: relative; background: #e5e5e5; border-radius: 4px; height: 22px; overflow: hidden; margin-bottom: 8px; }
+    .batch-bar { position: absolute; left: 0; top: 0; height: 100%; background: #0099ff; transition: width 0.3s ease; }
+    .batch-progress span { position: relative; z-index: 1; font-size: 10px; color: #333; padding: 0 8px; line-height: 22px; display: block; }
   </style>
 </head>
 <body>

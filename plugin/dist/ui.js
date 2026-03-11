@@ -625,8 +625,8 @@
     var _a, _b, _c;
     const [activeFrameId, setActiveFrameId] = d2(null);
     const [frameStates, setFrameStates] = d2({});
-    const frame = (_b = (_a = frames.find((f4) => f4.id === activeFrameId)) != null ? _a : frames[0]) != null ? _b : null;
-    const state = frame ? (_c = frameStates[frame.id]) != null ? _c : defaultState() : defaultState();
+    const [checkedIds, setCheckedIds] = d2(/* @__PURE__ */ new Set());
+    const [batchProgress, setBatchProgress] = d2(null);
     const patchState = q2((frameId, patch) => {
       setFrameStates((prev) => {
         var _a2;
@@ -637,6 +637,7 @@
     }, []);
     y2(() => {
       if (frames.length === 0) return;
+      setCheckedIds(new Set(frames.map((f4) => f4.id)));
       setActiveFrameId(
         (prev) => frames.find((f4) => f4.id === prev) ? prev : frames[0].id
       );
@@ -649,7 +650,9 @@
         });
         return next;
       });
-    }, [frames]);
+    }, [frames.map((f4) => f4.id).join(",")]);
+    const frame = (_b = (_a = frames.find((f4) => f4.id === activeFrameId)) != null ? _a : frames[0]) != null ? _b : null;
+    const state = frame ? (_c = frameStates[frame.id]) != null ? _c : defaultState() : defaultState();
     const sliceFrame = q2((targetFrame) => __async(null, null, function* () {
       patchState(targetFrame.id, { error: null, step: "analyzing" });
       try {
@@ -683,6 +686,17 @@
         patchState(targetFrame.id, { error: msg, step: "select" });
       }
     }), [patchState]);
+    const sliceAllChecked = q2(() => __async(null, null, function* () {
+      const targets = frames.filter((f4) => checkedIds.has(f4.id));
+      if (targets.length === 0) return;
+      setBatchProgress({ current: 0, total: targets.length });
+      for (let i3 = 0; i3 < targets.length; i3++) {
+        setBatchProgress({ current: i3, total: targets.length });
+        setActiveFrameId(targets[i3].id);
+        yield sliceFrame(targets[i3]);
+      }
+      setBatchProgress(null);
+    }), [checkedIds, frames, sliceFrame]);
     const compressAndSave = q2((targetFrame, currentState) => __async(null, null, function* () {
       if (currentState.slices.length === 0) return;
       patchState(targetFrame.id, { error: null, step: "compressing" });
@@ -733,26 +747,90 @@
       patchState(targetFrame.id, { step: "saved" });
     }, [patchState]);
     if (frames.length === 0) {
-      return /* @__PURE__ */ u3("div", { class: "empty-state", children: /* @__PURE__ */ u3("p", { children: "Select one or more email frames (500\u2013700px wide) to get started." }) });
+      return /* @__PURE__ */ u3("div", { class: "empty-state", children: /* @__PURE__ */ u3("p", { children: [
+        "No email frames found on this page.",
+        /* @__PURE__ */ u3("br", {}),
+        "Add a frame 500\u2013700px wide to get started."
+      ] }) });
     }
+    const isBatching = batchProgress !== null;
+    const checkedCount = checkedIds.size;
     return /* @__PURE__ */ u3("div", { class: "designer-mode", children: [
-      frames.length > 1 && /* @__PURE__ */ u3("div", { class: "frame-picker", children: frames.map((f4) => {
-        var _a2;
-        const fs = (_a2 = frameStates[f4.id]) != null ? _a2 : defaultState();
-        return /* @__PURE__ */ u3(
-          "button",
+      batchProgress && /* @__PURE__ */ u3("div", { class: "batch-progress", children: [
+        /* @__PURE__ */ u3(
+          "div",
           {
-            class: `frame-pill ${f4.id === (frame == null ? void 0 : frame.id) ? "active" : ""} ${fs.step === "saved" ? "done" : ""}`,
-            onClick: () => setActiveFrameId(f4.id),
-            title: `${f4.name} (${f4.width}\xD7${f4.height}px)`,
-            children: [
-              fs.step === "saved" ? "\u2713 " : "",
-              f4.name
-            ]
-          },
-          f4.id
-        );
-      }) }),
+            class: "batch-bar",
+            style: { width: `${Math.round(batchProgress.current / batchProgress.total * 100)}%` }
+          }
+        ),
+        /* @__PURE__ */ u3("span", { children: [
+          "Slicing ",
+          batchProgress.current + 1,
+          " of ",
+          batchProgress.total,
+          "\u2026"
+        ] })
+      ] }),
+      /* @__PURE__ */ u3("div", { class: "frame-checklist", children: [
+        /* @__PURE__ */ u3("div", { class: "checklist-header", children: [
+          /* @__PURE__ */ u3("span", { children: [
+            checkedCount,
+            " of ",
+            frames.length,
+            " frame",
+            frames.length !== 1 ? "s" : "",
+            " selected"
+          ] }),
+          /* @__PURE__ */ u3("div", { children: [
+            /* @__PURE__ */ u3("button", { onClick: () => setCheckedIds(new Set(frames.map((f4) => f4.id))), children: "All" }),
+            /* @__PURE__ */ u3("button", { onClick: () => setCheckedIds(/* @__PURE__ */ new Set()), children: "None" })
+          ] })
+        ] }),
+        frames.map((f4) => {
+          var _a2;
+          const fs = (_a2 = frameStates[f4.id]) != null ? _a2 : defaultState();
+          const isChecked = checkedIds.has(f4.id);
+          const isActive = f4.id === (frame == null ? void 0 : frame.id);
+          return /* @__PURE__ */ u3(
+            "label",
+            {
+              class: `frame-check-item ${isChecked ? "checked" : ""} ${isActive ? "active-frame" : ""}`,
+              onClick: () => setActiveFrameId(f4.id),
+              children: [
+                /* @__PURE__ */ u3(
+                  "input",
+                  {
+                    type: "checkbox",
+                    checked: isChecked,
+                    onChange: (e3) => {
+                      e3.stopPropagation();
+                      setCheckedIds((prev) => {
+                        const next = new Set(prev);
+                        next.has(f4.id) ? next.delete(f4.id) : next.add(f4.id);
+                        return next;
+                      });
+                    }
+                  }
+                ),
+                /* @__PURE__ */ u3("span", { class: "frame-check-name", title: f4.name, children: f4.name }),
+                /* @__PURE__ */ u3("span", { class: "frame-check-dims", children: [
+                  f4.width,
+                  "\xD7",
+                  f4.height
+                ] }),
+                fs.step === "saved" && /* @__PURE__ */ u3("span", { class: "frame-check-done", children: "\u2713" }),
+                (fs.step === "analyzing" || fs.step === "compressing") && /* @__PURE__ */ u3("span", { class: "frame-check-spinner" })
+              ]
+            },
+            f4.id
+          );
+        })
+      ] }),
+      checkedCount > 0 && !isBatching && /* @__PURE__ */ u3("div", { class: "action-row", style: { marginBottom: "8px" }, children: /* @__PURE__ */ u3("button", { class: "btn-primary", style: { flex: 1 }, onClick: sliceAllChecked, children: [
+        "\u2726 Slice ",
+        checkedCount > 1 ? `All ${checkedCount} Frames` : "Frame"
+      ] }) }),
       frame && /* @__PURE__ */ u3(
         FrameWorkflow,
         {
@@ -788,7 +866,7 @@
           ] })
         ] })
       ] }),
-      step === "select" && /* @__PURE__ */ u3("div", { class: "step-panel", children: /* @__PURE__ */ u3("button", { class: "btn-primary", onClick: onSlice, children: "\u2726 Slice Design" }) }),
+      step === "select" && /* @__PURE__ */ u3("div", { class: "step-panel", children: /* @__PURE__ */ u3("button", { class: "btn-primary", onClick: onSlice, children: "\u2726 Slice This Frame" }) }),
       step === "analyzing" && /* @__PURE__ */ u3("div", { class: "step-panel loading", children: [
         /* @__PURE__ */ u3("div", { class: "spinner" }),
         /* @__PURE__ */ u3("p", { children: "Slicing your design\u2026" })
@@ -1366,6 +1444,10 @@
         const msg = (_a2 = event.data) == null ? void 0 : _a2.pluginMessage;
         if (!msg) return;
         switch (msg.type) {
+          case "ALL_FRAMES_LOADED":
+            setFrames(msg.data);
+            setNoFrameWarning(false);
+            break;
           case "FRAMES_SELECTED":
             setFrames(msg.data);
             setNoFrameWarning(false);
@@ -1375,12 +1457,11 @@
             setNoFrameWarning(false);
             break;
           case "NO_FRAME_SELECTED":
-            setFrames([]);
             setNoFrameWarning(true);
             break;
         }
       };
-      parent.postMessage({ pluginMessage: { type: "GET_SELECTED_FRAME" } }, "*");
+      parent.postMessage({ pluginMessage: { type: "GET_ALL_FRAMES" } }, "*");
     }, []);
     return /* @__PURE__ */ u3("div", { class: "plugin-root", children: [
       /* @__PURE__ */ u3("header", { class: "plugin-header", children: [
@@ -1405,7 +1486,6 @@
           }
         )
       ] }),
-      noFrameWarning && /* @__PURE__ */ u3("div", { class: "frame-warning", children: "Select one or more email frames (500\u2013700px wide) to get started." }),
       /* @__PURE__ */ u3("main", { class: "plugin-content", children: mode === "designer" ? /* @__PURE__ */ u3(DesignerMode, { frames }) : /* @__PURE__ */ u3(TechMode, { frame: (_a = frames[0]) != null ? _a : null }) })
     ] });
   }

@@ -12,6 +12,13 @@ export function getSelectedEmailFrames(): FrameNode[] {
     .filter(frame => frame.width >= 500 && frame.width <= 700);
 }
 
+export function getAllEmailFrames(): FrameNode[] {
+  return figma.currentPage.children
+    .filter(node => node.type === 'FRAME')
+    .map(node => node as FrameNode)
+    .filter(frame => frame.width >= 500 && frame.width <= 700);
+}
+
 export function getFrameById(id: string): FrameNode | null {
   const node = figma.getNodeById(id);
   if (!node || node.type !== 'FRAME') return null;

@@ -88,6 +88,9 @@
   function getSelectedEmailFrames() {
     return figma.currentPage.selection.filter((node) => node.type === "FRAME").map((node) => node).filter((frame) => frame.width >= 500 && frame.width <= 700);
   }
+  function getAllEmailFrames() {
+    return figma.currentPage.children.filter((node) => node.type === "FRAME").map((node) => node).filter((frame) => frame.width >= 500 && frame.width <= 700);
+  }
   var init_figma_api = __esm({
     "src/utils/figma-api.ts"() {
       "use strict";
@@ -101,7 +104,10 @@
       init_export();
       init_figma_api();
       figma.showUI(__html__, { width: 400, height: 600, title: "Figma \u2192 Klaviyo" });
-      notifyFrameSelection();
+      notifyAllPageFrames();
+      figma.on("currentpagechange", () => {
+        notifyAllPageFrames();
+      });
       figma.on("selectionchange", () => {
         notifyFrameSelection();
       });
@@ -109,6 +115,10 @@
         var _a, _b, _c, _d;
         try {
           switch (msg.type) {
+            case "GET_ALL_FRAMES": {
+              notifyAllPageFrames();
+              break;
+            }
             case "GET_SELECTED_FRAME": {
               notifyFrameSelection();
               break;
@@ -220,6 +230,17 @@
           }
         }
         return bands;
+      }
+      function notifyAllPageFrames() {
+        const frames = getAllEmailFrames();
+        const data = frames.map((frame) => ({
+          id: frame.id,
+          name: frame.name,
+          width: frame.width,
+          height: frame.height,
+          existingSliceData: loadSliceData(frame.id)
+        }));
+        figma.ui.postMessage({ type: "ALL_FRAMES_LOADED", data });
       }
       function notifyFrameSelection() {
         const frames = getSelectedEmailFrames();
