@@ -137,6 +137,16 @@
               notifyFrameSelection();
               break;
             }
+            case "EXPORT_FRAME": {
+              const frameNode = figma.getNodeById(msg.frameId);
+              if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
+              const bytes = yield frameNode.exportAsync({
+                format: "PNG",
+                constraint: { type: "SCALE", value: 2 }
+              });
+              figma.ui.postMessage({ type: "FRAME_EXPORTED", data: uint8ArrayToBase64(bytes) });
+              break;
+            }
             case "EXPORT_SLICES": {
               const exports2 = yield exportSlices(msg.frameId, msg.slices);
               figma.ui.postMessage({ type: "EXPORT_COMPLETE", data: exports2 });

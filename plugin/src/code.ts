@@ -1,7 +1,7 @@
 /// <reference types="@figma/plugin-typings" />
 
 import { saveSliceData, loadSliceData } from './utils/metadata';
-import { exportSlices } from './utils/export';
+import { exportSlices, uint8ArrayToBase64 } from './utils/export';
 import { getSelectedEmailFrame } from './utils/figma-api';
 import type { UIMessage, SliceData } from './types';
 
@@ -26,6 +26,17 @@ figma.ui.onmessage = async (msg: UIMessage) => {
 
       case 'GET_SELECTED_FRAME': {
         notifyFrameSelection();
+        break;
+      }
+
+      case 'EXPORT_FRAME': {
+        const frameNode = figma.getNodeById(msg.frameId) as FrameNode;
+        if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
+        const bytes = await frameNode.exportAsync({
+          format: 'PNG',
+          constraint: { type: 'SCALE', value: 2 }
+        });
+        figma.ui.postMessage({ type: 'FRAME_EXPORTED', data: uint8ArrayToBase64(bytes) });
         break;
       }
 

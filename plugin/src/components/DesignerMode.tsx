@@ -58,12 +58,6 @@ export function DesignerMode({ frame }: Props) {
     setStep('analyzing');
 
     try {
-      // Ask Figma sandbox to export the frame
-      parent.postMessage({
-        pluginMessage: { type: 'EXPORT_SLICES', frameId: frame.id, slices: [] }
-      }, '*');
-
-      // Wait for export – we actually export the full frame here for analysis
       const fullExport = await exportFullFrame(frame.id);
       setImageBase64(fullExport);
 
@@ -306,22 +300,16 @@ async function exportFullFrame(frameId: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const handler = (event: MessageEvent) => {
       const msg = event.data?.pluginMessage;
-      if (msg?.type === 'EXPORT_COMPLETE' && msg.data?.length > 0) {
+      if (msg?.type === 'FRAME_EXPORTED') {
         window.removeEventListener('message', handler);
-        resolve(msg.data[0].image_base64);
+        resolve(msg.data);
       } else if (msg?.type === 'ERROR') {
         window.removeEventListener('message', handler);
         reject(new Error(msg.message));
       }
     };
     window.addEventListener('message', handler);
-    parent.postMessage({
-      pluginMessage: {
-        type: 'EXPORT_SLICES',
-        frameId,
-        slices: [{ id: 'full', name: 'full', y_start: 0, y_end: 9999, alt_text: '' }]
-      }
-    }, '*');
+    parent.postMessage({ pluginMessage: { type: 'EXPORT_FRAME', frameId } }, '*');
   });
 }
 

@@ -115,9 +115,11 @@ export type PluginMessage =
   | { type: 'NO_FRAME_SELECTED' }
   | { type: 'SLICE_DATA_LOADED'; data: SliceData }
   | { type: 'EXPORT_COMPLETE'; data: SliceExport[] }
+  | { type: 'FRAME_EXPORTED'; data: string }
   | { type: 'ERROR'; message: string };
 
 export type UIMessage =
+  | { type: 'EXPORT_FRAME'; frameId: string }
   | { type: 'EXPORT_SLICES'; frameId: string; slices: Slice[] }
   | { type: 'SAVE_SLICE_DATA'; frameId: string; data: SliceData }
   | { type: 'LOAD_SLICE_DATA'; frameId: string }

@@ -637,9 +637,6 @@
       setError(null);
       setStep("analyzing");
       try {
-        parent.postMessage({
-          pluginMessage: { type: "EXPORT_SLICES", frameId: frame.id, slices: [] }
-        }, "*");
         const fullExport = yield exportFullFrame(frame.id);
         setImageBase64(fullExport);
         const response = yield fetch(`${BACKEND_URL}/api/analyze`, {
@@ -843,24 +840,18 @@
     return __async(this, null, function* () {
       return new Promise((resolve, reject) => {
         const handler = (event) => {
-          var _a, _b;
+          var _a;
           const msg = (_a = event.data) == null ? void 0 : _a.pluginMessage;
-          if ((msg == null ? void 0 : msg.type) === "EXPORT_COMPLETE" && ((_b = msg.data) == null ? void 0 : _b.length) > 0) {
+          if ((msg == null ? void 0 : msg.type) === "FRAME_EXPORTED") {
             window.removeEventListener("message", handler);
-            resolve(msg.data[0].image_base64);
+            resolve(msg.data);
           } else if ((msg == null ? void 0 : msg.type) === "ERROR") {
             window.removeEventListener("message", handler);
             reject(new Error(msg.message));
           }
         };
         window.addEventListener("message", handler);
-        parent.postMessage({
-          pluginMessage: {
-            type: "EXPORT_SLICES",
-            frameId,
-            slices: [{ id: "full", name: "full", y_start: 0, y_end: 9999, alt_text: "" }]
-          }
-        }, "*");
+        parent.postMessage({ pluginMessage: { type: "EXPORT_FRAME", frameId } }, "*");
       });
     });
   }
