@@ -37,7 +37,7 @@ export function DesignerMode({ frames }: Props) {
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
   const [compressQuality, setCompressQuality] = useState<number>(82);
-  const [compressMaxKb, setCompressMaxKb] = useState<number>(200);
+  const [compressMaxKb, setCompressMaxKb] = useState<number>(500);
   const [compressFormat, setCompressFormat] = useState<'auto' | 'jpeg' | 'png' | 'webp'>('auto');
 
   const stopRef = useRef(false);
@@ -481,10 +481,10 @@ function FrameWorkflow({ frame, state, onSlice, onReSlice, onSlicesChange, onApp
             )}
 
             <div class="slider-row">
-              <label>Max size per slice <span>{compressMaxKb} KB</span></label>
-              <input type="range" min={50} max={300} step={10} value={compressMaxKb}
+              <label>Max size per slice <span>{compressMaxKb >= 1000 ? `${(compressMaxKb / 1024).toFixed(1)} MB` : `${compressMaxKb} KB`}</span></label>
+              <input type="range" min={50} max={5000} step={50} value={compressMaxKb}
                 onInput={(e) => onMaxKbChange(+(e.target as HTMLInputElement).value)} />
-              <div class="slider-hints"><span>50 KB</span><span>300 KB</span></div>
+              <div class="slider-hints"><span>50 KB</span><span>5 MB (Klaviyo max)</span></div>
             </div>
           </div>
 

@@ -664,7 +664,7 @@
     const [checkedIds, setCheckedIds] = d2(/* @__PURE__ */ new Set());
     const [batchProgress, setBatchProgress] = d2(null);
     const [compressQuality, setCompressQuality] = d2(82);
-    const [compressMaxKb, setCompressMaxKb] = d2(200);
+    const [compressMaxKb, setCompressMaxKb] = d2(500);
     const [compressFormat, setCompressFormat] = d2("auto");
     const stopRef = A2(false);
     const fetchControllerRef = A2(null);
@@ -1067,25 +1067,22 @@
           /* @__PURE__ */ u3("div", { class: "slider-row", children: [
             /* @__PURE__ */ u3("label", { children: [
               "Max size per slice ",
-              /* @__PURE__ */ u3("span", { children: [
-                compressMaxKb,
-                " KB"
-              ] })
+              /* @__PURE__ */ u3("span", { children: compressMaxKb >= 1e3 ? `${(compressMaxKb / 1024).toFixed(1)} MB` : `${compressMaxKb} KB` })
             ] }),
             /* @__PURE__ */ u3(
               "input",
               {
                 type: "range",
                 min: 50,
-                max: 300,
-                step: 10,
+                max: 5e3,
+                step: 50,
                 value: compressMaxKb,
                 onInput: (e3) => onMaxKbChange(+e3.target.value)
               }
             ),
             /* @__PURE__ */ u3("div", { class: "slider-hints", children: [
               /* @__PURE__ */ u3("span", { children: "50 KB" }),
-              /* @__PURE__ */ u3("span", { children: "300 KB" })
+              /* @__PURE__ */ u3("span", { children: "5 MB (Klaviyo max)" })
             ] })
           ] })
         ] }),

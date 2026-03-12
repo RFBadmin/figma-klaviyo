@@ -294,7 +294,12 @@
         const bands = [];
         for (const child of children) {
           if (!child.visible) continue;
-          const bbox = child.absoluteBoundingBox;
+          let bbox;
+          try {
+            bbox = child.absoluteBoundingBox;
+          } catch (e) {
+            continue;
+          }
           if (!bbox) continue;
           const y_start = Math.max(0, Math.round(bbox.y - frameAbsY));
           const y_end = Math.min(frameHeight, Math.round(bbox.y - frameAbsY + bbox.height));

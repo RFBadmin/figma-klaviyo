@@ -265,7 +265,8 @@ function collectChildBands(
   const bands: Array<{ name: string; y_start: number; y_end: number }> = [];
   for (const child of children) {
     if (!child.visible) continue;
-    const bbox = child.absoluteBoundingBox;
+    let bbox: Rect | null;
+    try { bbox = child.absoluteBoundingBox; } catch { continue; }
     if (!bbox) continue;
     const y_start = Math.max(0, Math.round(bbox.y - frameAbsY));
     const y_end = Math.min(frameHeight, Math.round(bbox.y - frameAbsY + bbox.height));
