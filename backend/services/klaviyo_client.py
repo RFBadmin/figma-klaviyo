@@ -94,11 +94,13 @@ class KlaviyoClient:
                         "data": [{
                             "type": "campaign-message",
                             "attributes": {
-                                "channel": "email",
-                                "label": name,
-                                "content": {
-                                    "subject": subject,
-                                    "preview_text": preview_text
+                                "definition": {
+                                    "channel": "email",
+                                    "label": name,
+                                    "content": {
+                                        "subject": subject,
+                                        "preview_text": preview_text
+                                    }
                                 }
                             }
                         }]
