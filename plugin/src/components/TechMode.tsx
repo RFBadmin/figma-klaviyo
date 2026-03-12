@@ -120,8 +120,9 @@ export function TechMode({ frame }: Props) {
       });
 
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({})) as { error?: string };
-        throw new Error(errData.error || `Push failed: ${res.statusText}`);
+        const errData = await res.json().catch(() => ({})) as { error?: string; detail?: unknown };
+        const detail = errData.detail ? `\n${JSON.stringify(errData.detail, null, 2)}` : '';
+        throw new Error((errData.error || `Push failed: ${res.statusText}`) + detail);
       }
 
       const data = await res.json();

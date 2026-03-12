@@ -86,10 +86,10 @@ class KlaviyoClient:
                         "included": [list_id],
                         "excluded": []
                     },
-                    "send_strategy": {
-                        "method": "static" if send_time else "immediate",
-                        **({"options_static": {"datetime": send_time}} if send_time else {})
-                    },
+                    **({"send_strategy": {
+                        "method": "static",
+                        "options_static": {"datetime": send_time}
+                    }} if send_time else {}),
                     "campaign-messages": {
                         "data": [{
                             "type": "campaign-message",

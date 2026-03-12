@@ -1521,7 +1521,9 @@
         });
         if (!res.ok) {
           const errData = yield res.json().catch(() => ({}));
-          throw new Error(errData.error || `Push failed: ${res.statusText}`);
+          const detail = errData.detail ? `
+${JSON.stringify(errData.detail, null, 2)}` : "";
+          throw new Error((errData.error || `Push failed: ${res.statusText}`) + detail);
         }
         const data = yield res.json();
         setPushResult(data);
