@@ -107,6 +107,19 @@ export function TechMode({ frame }: Props) {
     setStep('pushing');
 
     try {
+      // Fetch fresh images from Figma slice nodes so we don't depend on
+      // temp files (which are wiped on every server redeploy).
+      let slicesForPush: (Slice & { image_base64?: string })[] = editedSlices;
+      if (sliceData?.frame_id) {
+        const imageMap = await fetchFigmaSliceImages(sliceData.frame_id);
+        if (imageMap.size > 0) {
+          slicesForPush = editedSlices.map(s => ({
+            ...s,
+            image_base64: imageMap.get(s.name) ?? undefined
+          }));
+        }
+      }
+
       const res = await fetch(`${BACKEND_URL}/api/klaviyo/push`, {
         method: 'POST',
         headers: {
@@ -114,7 +127,7 @@ export function TechMode({ frame }: Props) {
           'X-Klaviyo-Key': klaviyoKey
         },
         body: JSON.stringify({
-          slices: editedSlices,
+          slices: slicesForPush,
           config: klaviyoConfig
         })
       });
@@ -300,4 +313,33 @@ export function TechMode({ frame }: Props) {
 function formatDate(iso: string): string {
   if (!iso) return '';
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/**
+ * Ask Figma to export the slice nodes on a frame and return a name→base64 map.
+ * Falls back to empty map if there are no slice nodes or the request times out.
+ */
+function fetchFigmaSliceImages(frameId: string): Promise<Map<string, string>> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      window.removeEventListener('message', handler);
+      resolve(new Map());
+    }, 15000);
+
+    const handler = (event: MessageEvent) => {
+      const msg = event.data?.pluginMessage;
+      if (msg?.type === 'FIGMA_SLICES_LOADED') {
+        clearTimeout(timer);
+        window.removeEventListener('message', handler);
+        const map = new Map<string, string>();
+        for (const s of msg.slices as Array<{ name: string; imageBase64: string }>) {
+          map.set(s.name, s.imageBase64);
+        }
+        resolve(map);
+      }
+    };
+
+    window.addEventListener('message', handler);
+    parent.postMessage({ pluginMessage: { type: 'GET_FIGMA_SLICES', frameId } }, '*');
+  });
 }

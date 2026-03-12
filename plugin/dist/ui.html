@@ -1661,6 +1661,18 @@
       setError(null);
       setStep("pushing");
       try {
+        let slicesForPush = editedSlices;
+        if (sliceData == null ? void 0 : sliceData.frame_id) {
+          const imageMap = yield fetchFigmaSliceImages(sliceData.frame_id);
+          if (imageMap.size > 0) {
+            slicesForPush = editedSlices.map((s3) => {
+              var _a2;
+              return __spreadProps(__spreadValues({}, s3), {
+                image_base64: (_a2 = imageMap.get(s3.name)) != null ? _a2 : void 0
+              });
+            });
+          }
+        }
         const res = yield fetch(`${BACKEND_URL2}/api/klaviyo/push`, {
           method: "POST",
           headers: {
@@ -1668,7 +1680,7 @@
             "X-Klaviyo-Key": klaviyoKey
           },
           body: JSON.stringify({
-            slices: editedSlices,
+            slices: slicesForPush,
             config: klaviyoConfig
           })
         });
@@ -1837,6 +1849,29 @@ ${JSON.stringify(errData.detail, null, 2)}` : "";
   function formatDate(iso) {
     if (!iso) return "";
     return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  }
+  function fetchFigmaSliceImages(frameId) {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        window.removeEventListener("message", handler);
+        resolve(/* @__PURE__ */ new Map());
+      }, 15e3);
+      const handler = (event) => {
+        var _a;
+        const msg = (_a = event.data) == null ? void 0 : _a.pluginMessage;
+        if ((msg == null ? void 0 : msg.type) === "FIGMA_SLICES_LOADED") {
+          clearTimeout(timer);
+          window.removeEventListener("message", handler);
+          const map = /* @__PURE__ */ new Map();
+          for (const s3 of msg.slices) {
+            map.set(s3.name, s3.imageBase64);
+          }
+          resolve(map);
+        }
+      };
+      window.addEventListener("message", handler);
+      parent.postMessage({ pluginMessage: { type: "GET_FIGMA_SLICES", frameId } }, "*");
+    });
   }
 
   // src/ui.tsx
