@@ -167,7 +167,7 @@
     };
   }
   function z(n2, u4, t3, i3, r3, o3, e3, f4, c3, s3) {
-    var a3, h4, p3, y3, _2, m3, b, S2, C3, M2, $2, I2, A2, H2, L, T3 = u4.type;
+    var a3, h4, p3, y3, _2, m3, b, S2, C3, M2, $2, I2, A3, H2, L, T3 = u4.type;
     if (void 0 !== u4.constructor) return null;
     128 & t3.__u && (c3 = !!(32 & t3.__u), o3 = [f4 = u4.__e = t3.__e]), (a3 = l.__b) && a3(u4);
     n: if ("function" == typeof T3) try {
@@ -183,10 +183,10 @@
           h4.componentDidUpdate(y3, _2, m3);
         });
       }
-      if (h4.context = $2, h4.props = S2, h4.__P = n2, h4.__e = false, I2 = l.__r, A2 = 0, C3) h4.state = h4.__s, h4.__d = false, I2 && I2(u4), a3 = h4.render(h4.props, h4.state, h4.context), v.push.apply(h4.__h, h4._sb), h4._sb = [];
+      if (h4.context = $2, h4.props = S2, h4.__P = n2, h4.__e = false, I2 = l.__r, A3 = 0, C3) h4.state = h4.__s, h4.__d = false, I2 && I2(u4), a3 = h4.render(h4.props, h4.state, h4.context), v.push.apply(h4.__h, h4._sb), h4._sb = [];
       else do {
         h4.__d = false, I2 && I2(u4), a3 = h4.render(h4.props, h4.state, h4.context), h4.state = h4.__s;
-      } while (h4.__d && ++A2 < 25);
+      } while (h4.__d && ++A3 < 25);
       h4.state = h4.__s, null != h4.getChildContext && (i3 = w(w({}, i3), h4.getChildContext())), C3 && !p3 && null != h4.getSnapshotBeforeUpdate && (m3 = h4.getSnapshotBeforeUpdate(y3, _2)), H2 = null != a3 && a3.type === k && null == a3.key ? q(a3.props.children) : a3, f4 = P(n2, d(H2) ? H2 : [H2], u4, t3, i3, r3, o3, e3, f4, c3, s3), h4.base = u4.__e, u4.__u &= -161, h4.__h.length && e3.push(h4), b && (h4.__E = h4.__ = null);
     } catch (n3) {
       if (u4.__v = null, c3 || null != o3) if (n3.then) {
@@ -350,6 +350,11 @@
   function y2(n2, u4) {
     var i3 = p2(t2++, 3);
     !c2.__s && C2(i3.__H, u4) && (i3.__ = n2, i3.u = u4, r2.__H.__h.push(i3));
+  }
+  function A2(n2) {
+    return o2 = 5, T2(function() {
+      return { current: n2 };
+    }, []);
   }
   function T2(n2, r3) {
     var u4 = p2(t2++, 7);
@@ -661,6 +666,24 @@
     const [compressQuality, setCompressQuality] = d2(82);
     const [compressMaxKb, setCompressMaxKb] = d2(200);
     const [compressFormat, setCompressFormat] = d2("auto");
+    const stopRef = A2(false);
+    const fetchControllerRef = A2(null);
+    const cancelSlice = q2(() => {
+      var _a2;
+      stopRef.current = true;
+      (_a2 = fetchControllerRef.current) == null ? void 0 : _a2.abort();
+      fetchControllerRef.current = null;
+      setBatchProgress(null);
+      setFrameStates((prev) => {
+        const next = __spreadValues({}, prev);
+        Object.keys(next).forEach((id) => {
+          if (next[id].step === "analyzing") {
+            next[id] = __spreadProps(__spreadValues({}, next[id]), { step: "select", error: null });
+          }
+        });
+        return next;
+      });
+    }, []);
     const patchState = q2((frameId, patch) => {
       setFrameStates((prev) => {
         var _a2;
@@ -688,9 +711,11 @@
     const frame = (_b = (_a = frames.find((f4) => f4.id === activeFrameId)) != null ? _a : frames[0]) != null ? _b : null;
     const state = frame ? (_c = frameStates[frame.id]) != null ? _c : defaultState() : defaultState();
     const sliceFrame = q2((targetFrame, forceAI = false) => __async(null, null, function* () {
+      stopRef.current = false;
       patchState(targetFrame.id, { error: null, step: "analyzing" });
       try {
         const figmaSlices = forceAI ? [] : yield requestFigmaSlices(targetFrame.id);
+        if (stopRef.current) return;
         if (figmaSlices.length > 0) {
           const newSlices2 = figmaSlices.map((s3, i3) => ({
             id: `slice_${Date.now()}_${i3}`,
@@ -711,10 +736,14 @@
           exportFullFrame(targetFrame.id),
           requestFrameLayout(targetFrame.id)
         ]);
+        if (stopRef.current) return;
         patchState(targetFrame.id, { imageBase64: base64 });
+        const controller = new AbortController();
+        fetchControllerRef.current = controller;
         const response = yield fetch(`${BACKEND_URL}/api/analyze`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({
             image_base64: base64,
             frame_width: targetFrame.width,
@@ -722,6 +751,7 @@
             layer_bands: bands
           })
         });
+        fetchControllerRef.current = null;
         if (!response.ok) throw new Error(`Slicing failed: ${response.statusText}`);
         const data = yield response.json();
         const newSlices = data.slices.map((s3, i3) => ({
@@ -733,6 +763,7 @@
         }));
         patchState(targetFrame.id, { slices: newSlices, figmaSliceImages: null, step: "preview" });
       } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
         const msg = err instanceof Error ? err.message : String(err);
         patchState(targetFrame.id, { error: msg, step: "select" });
       }
@@ -742,12 +773,14 @@
       if (targets.length === 0) return;
       setBatchProgress({ current: 0, total: targets.length });
       for (let i3 = 0; i3 < targets.length; i3++) {
+        if (stopRef.current) break;
         setBatchProgress({ current: i3, total: targets.length });
         setActiveFrameId(targets[i3].id);
         yield sliceFrame(targets[i3]);
       }
       setBatchProgress(null);
-      setActiveFrameId(targets[0].id);
+      if (!stopRef.current) setActiveFrameId(targets[0].id);
+      stopRef.current = false;
     }), [checkedIds, frames, sliceFrame]);
     const applyToFrame = q2((targetFrame, currentState) => __async(null, null, function* () {
       try {
@@ -855,7 +888,8 @@
           " of ",
           batchProgress.total,
           "\u2026"
-        ] })
+        ] }),
+        /* @__PURE__ */ u3("button", { class: "btn-stop-inline", onClick: cancelSlice, children: "\u2715 Stop" })
       ] }),
       /* @__PURE__ */ u3("div", { class: "frame-checklist", children: [
         /* @__PURE__ */ u3("div", { class: "checklist-header", children: [
@@ -937,6 +971,7 @@
           onSave: () => saveDesign(frame, state),
           onStepChange: (step) => patchState(frame.id, { step }),
           onErrorDismiss: () => patchState(frame.id, { error: null }),
+          onCancelSlice: cancelSlice,
           compressQuality,
           compressMaxKb,
           compressFormat,
@@ -947,7 +982,7 @@
       )
     ] });
   }
-  function FrameWorkflow({ frame, state, onSlice, onReSlice, onSlicesChange, onApplyToFrame, onCompress, onSave, onStepChange, onErrorDismiss, compressQuality, compressMaxKb, compressFormat, onQualityChange, onMaxKbChange, onFormatChange }) {
+  function FrameWorkflow({ frame, state, onSlice, onReSlice, onSlicesChange, onApplyToFrame, onCompress, onSave, onStepChange, onErrorDismiss, onCancelSlice, compressQuality, compressMaxKb, compressFormat, onQualityChange, onMaxKbChange, onFormatChange }) {
     const { step, slices, imageBase64, compressResponse, error } = state;
     return /* @__PURE__ */ u3("div", { children: [
       error && /* @__PURE__ */ u3("div", { class: "error-banner", children: [
@@ -970,7 +1005,8 @@
       step === "select" && /* @__PURE__ */ u3("div", { class: "step-panel", children: /* @__PURE__ */ u3("button", { class: "btn-primary", onClick: onSlice, children: "\u2726 Slice This Frame" }) }),
       step === "analyzing" && /* @__PURE__ */ u3("div", { class: "step-panel loading", children: [
         /* @__PURE__ */ u3("div", { class: "spinner" }),
-        /* @__PURE__ */ u3("p", { children: "Slicing your design\u2026" })
+        /* @__PURE__ */ u3("p", { children: "Slicing your design\u2026" }),
+        /* @__PURE__ */ u3("button", { class: "btn-stop", onClick: onCancelSlice, children: "\u2715 Stop" })
       ] }),
       step === "preview" && /* @__PURE__ */ u3("div", { class: "step-panel", children: [
         /* @__PURE__ */ u3(
@@ -1092,8 +1128,8 @@
     const statusIcon = (s3) => s3 === "optimal" ? "\u2713" : s3 === "good" ? "\u2713" : s3 === "warning" ? "\u26A0" : "\u2717";
     return /* @__PURE__ */ u3("div", { class: "compression-results", children: [
       /* @__PURE__ */ u3("div", { class: "targets-box", children: [
-        /* @__PURE__ */ u3("span", { children: "Per slice: \u2264100KB ideal \u2502 \u2264200KB max" }),
-        /* @__PURE__ */ u3("span", { children: "Total email: \u2264500KB recommended" })
+        /* @__PURE__ */ u3("span", { children: "Per image: \u22645MB (Klaviyo API limit) \u2502 originals used if under limit" }),
+        /* @__PURE__ */ u3("span", { children: "For fast email delivery: keep total under 500KB" })
       ] }),
       /* @__PURE__ */ u3("table", { class: "results-table", children: [
         /* @__PURE__ */ u3("thead", { children: /* @__PURE__ */ u3("tr", { children: [

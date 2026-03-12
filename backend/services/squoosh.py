@@ -25,20 +25,21 @@ class CompressionResult:
 
     @property
     def status(self) -> str:
+        mb = self.compressed_size / (1024 * 1024)
+        if mb > 5:
+            return 'failed'   # exceeds Klaviyo 5MB hard limit
         kb = self.compressed_size / 1024
-        if kb <= 100:
-            return 'optimal'
-        elif kb <= 150:
-            return 'good'
-        elif kb <= 200:
-            return 'warning'
-        return 'failed'
+        if kb <= 200:
+            return 'optimal'  # great for email delivery
+        if kb <= 1024:
+            return 'good'     # acceptable
+        return 'warning'      # large but within Klaviyo limit
 
 
 KLAVIYO_LIMITS = {
-    'max_file_size': 200 * 1024,
-    'target_file_size': 100 * 1024,
-    'warn_file_size': 150 * 1024,
+    'max_file_size': 5 * 1024 * 1024,   # 5MB — Klaviyo API hard limit
+    'target_file_size': 200 * 1024,      # 200KB — good for email delivery
+    'warn_file_size': 1024 * 1024,       # 1MB — flag as large
     'total_email_target': 500 * 1024,
 }
 
@@ -80,11 +81,10 @@ class SquooshService:
         results = []
         for r in output['results']:
             compressed_bytes = base64.b64decode(r['compressed_data'])
-            max_kb = max_size // 1024
-            passed = r['compressed_size'] <= max_size
+            passed = r['compressed_size'] <= KLAVIYO_LIMITS['max_file_size']
             warnings = []
             if not passed:
-                warnings.append(f"Exceeds {max_kb}KB limit ({r['compressed_size'] // 1024}KB) — consider splitting")
+                warnings.append(f"Exceeds 5MB Klaviyo limit ({r['compressed_size'] // 1024}KB) — consider splitting this slice")
             elif r['compressed_size'] > KLAVIYO_LIMITS['warn_file_size']:
                 warnings.append(f"Large file ({r['compressed_size'] // 1024}KB) — may load slowly on mobile")
 

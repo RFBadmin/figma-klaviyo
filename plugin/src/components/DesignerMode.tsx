@@ -1,5 +1,4 @@
-import { h } from 'preact';
-import { useState, useEffect, useCallback } from 'preact/hooks';
+import { useState, useEffect, useCallback, useRef } from 'preact/hooks';
 import { SlicePreview } from './SlicePreview';
 import type { Slice, SliceData, CompressedSlice, CompressResponse, LayoutBand } from '../types';
 import type { FrameInfo } from '../ui';
@@ -41,6 +40,25 @@ export function DesignerMode({ frames }: Props) {
   const [compressMaxKb, setCompressMaxKb] = useState<number>(200);
   const [compressFormat, setCompressFormat] = useState<'auto' | 'jpeg' | 'png' | 'webp'>('auto');
 
+  const stopRef = useRef(false);
+  const fetchControllerRef = useRef<AbortController | null>(null);
+
+  const cancelSlice = useCallback(() => {
+    stopRef.current = true;
+    fetchControllerRef.current?.abort();
+    fetchControllerRef.current = null;
+    setBatchProgress(null);
+    setFrameStates(prev => {
+      const next = { ...prev };
+      Object.keys(next).forEach(id => {
+        if (next[id].step === 'analyzing') {
+          next[id] = { ...next[id], step: 'select', error: null };
+        }
+      });
+      return next;
+    });
+  }, []);
+
   const patchState = useCallback((frameId: string, patch: Partial<FrameState>) => {
     setFrameStates(prev => ({
       ...prev,
@@ -79,10 +97,12 @@ export function DesignerMode({ frames }: Props) {
   // ─── Actions ──────────────────────────────────────────────────────────────
 
   const sliceFrame = useCallback(async (targetFrame: FrameInfo, forceAI = false) => {
+    stopRef.current = false;
     patchState(targetFrame.id, { error: null, step: 'analyzing' });
     try {
       // ── Check for existing Figma Slice nodes first (skip when re-slicing) ─
       const figmaSlices = forceAI ? [] : await requestFigmaSlices(targetFrame.id);
+      if (stopRef.current) return;
       if (figmaSlices.length > 0) {
         const newSlices: Slice[] = figmaSlices.map((s, i) => ({
           id: `slice_${Date.now()}_${i}`,
@@ -105,11 +125,15 @@ export function DesignerMode({ frames }: Props) {
         exportFullFrame(targetFrame.id),
         requestFrameLayout(targetFrame.id)
       ]);
+      if (stopRef.current) return;
       patchState(targetFrame.id, { imageBase64: base64 });
 
+      const controller = new AbortController();
+      fetchControllerRef.current = controller;
       const response = await fetch(`${BACKEND_URL}/api/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           image_base64: base64,
           frame_width: targetFrame.width,
@@ -117,6 +141,7 @@ export function DesignerMode({ frames }: Props) {
           layer_bands: bands
         })
       });
+      fetchControllerRef.current = null;
 
       if (!response.ok) throw new Error(`Slicing failed: ${response.statusText}`);
 
@@ -131,6 +156,7 @@ export function DesignerMode({ frames }: Props) {
 
       patchState(targetFrame.id, { slices: newSlices, figmaSliceImages: null, step: 'preview' });
     } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
       const msg = err instanceof Error ? err.message : String(err);
       patchState(targetFrame.id, { error: msg, step: 'select' });
     }
@@ -141,12 +167,14 @@ export function DesignerMode({ frames }: Props) {
     if (targets.length === 0) return;
     setBatchProgress({ current: 0, total: targets.length });
     for (let i = 0; i < targets.length; i++) {
+      if (stopRef.current) break;
       setBatchProgress({ current: i, total: targets.length });
       setActiveFrameId(targets[i].id);
       await sliceFrame(targets[i]);
     }
     setBatchProgress(null);
-    setActiveFrameId(targets[0].id);
+    if (!stopRef.current) setActiveFrameId(targets[0].id);
+    stopRef.current = false;
   }, [checkedIds, frames, sliceFrame]);
 
   const applyToFrame = useCallback(async (targetFrame: FrameInfo, currentState: FrameState) => {
@@ -258,6 +286,7 @@ export function DesignerMode({ frames }: Props) {
             style={{ width: `${Math.round((batchProgress.current / batchProgress.total) * 100)}%` }}
           />
           <span>Slicing {batchProgress.current + 1} of {batchProgress.total}…</span>
+          <button class="btn-stop-inline" onClick={cancelSlice}>✕ Stop</button>
         </div>
       )}
 
@@ -329,6 +358,7 @@ export function DesignerMode({ frames }: Props) {
           onSave={() => saveDesign(frame, state)}
           onStepChange={(step) => patchState(frame.id, { step })}
           onErrorDismiss={() => patchState(frame.id, { error: null })}
+          onCancelSlice={cancelSlice}
           compressQuality={compressQuality}
           compressMaxKb={compressMaxKb}
           compressFormat={compressFormat}
@@ -354,6 +384,7 @@ interface WorkflowProps {
   onSave: () => void;
   onStepChange: (step: Step) => void;
   onErrorDismiss: () => void;
+  onCancelSlice: () => void;
   compressQuality: number;
   compressMaxKb: number;
   compressFormat: 'auto' | 'jpeg' | 'png' | 'webp';
@@ -362,7 +393,7 @@ interface WorkflowProps {
   onFormatChange: (v: 'auto' | 'jpeg' | 'png' | 'webp') => void;
 }
 
-function FrameWorkflow({ frame, state, onSlice, onReSlice, onSlicesChange, onApplyToFrame, onCompress, onSave, onStepChange, onErrorDismiss, compressQuality, compressMaxKb, compressFormat, onQualityChange, onMaxKbChange, onFormatChange }: WorkflowProps) {
+function FrameWorkflow({ frame, state, onSlice, onReSlice, onSlicesChange, onApplyToFrame, onCompress, onSave, onStepChange, onErrorDismiss, onCancelSlice, compressQuality, compressMaxKb, compressFormat, onQualityChange, onMaxKbChange, onFormatChange }: WorkflowProps) {
   const { step, slices, imageBase64, compressResponse, error } = state;
 
   return (
@@ -394,6 +425,7 @@ function FrameWorkflow({ frame, state, onSlice, onReSlice, onSlicesChange, onApp
         <div class="step-panel loading">
           <div class="spinner" />
           <p>Slicing your design…</p>
+          <button class="btn-stop" onClick={onCancelSlice}>✕ Stop</button>
         </div>
       )}
 
@@ -506,8 +538,8 @@ function CompressionResults({ response }: { response: CompressResponse }) {
   return (
     <div class="compression-results">
       <div class="targets-box">
-        <span>Per slice: ≤100KB ideal │ ≤200KB max</span>
-        <span>Total email: ≤500KB recommended</span>
+        <span>Per image: ≤5MB (Klaviyo API limit) │ originals used if under limit</span>
+        <span>For fast email delivery: keep total under 500KB</span>
       </div>
       <table class="results-table">
         <thead>

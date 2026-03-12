@@ -1,51 +1,51 @@
 const sharp = require('sharp');
 
-async function compressSlice(imageBuffer, settings) {
-  const { quality = 82, max_size_kb = 200, format = 'auto' } = settings;
-  const maxBytes = max_size_kb * 1024;
+const KLAVIYO_MAX_BYTES = 5 * 1024 * 1024; // 5MB — Klaviyo image API hard limit
 
+async function compressSlice(imageBuffer, settings) {
   const metadata = await sharp(imageBuffer).metadata();
+
+  // If within Klaviyo's 5MB limit, use the original — no compression needed
+  if (imageBuffer.length <= KLAVIYO_MAX_BYTES) {
+    return {
+      buffer: imageBuffer,
+      format: metadata.format || 'png',
+      width: metadata.width,
+      height: metadata.height,
+    };
+  }
+
+  // Original exceeds 5MB — must compress to meet Klaviyo's hard limit
+  const { quality = 82, format = 'auto' } = settings;
   const hasAlpha = metadata.hasAlpha;
 
-  // Determine actual output format
-  let outFormat = format;
-  if (outFormat === 'auto') {
-    outFormat = hasAlpha ? 'png' : 'jpeg';
+  // PNG is lossless — can't compress a large complex image below 5MB with PNG.
+  // Force lossy format: webp (preserves alpha) or jpeg.
+  let outFormat = format === 'auto' || format === 'png'
+    ? (hasAlpha ? 'webp' : 'jpeg')
+    : format;
+
+  const encode = (q) => outFormat === 'webp'
+    ? sharp(imageBuffer).webp({ quality: q, lossless: false }).toBuffer()
+    : sharp(imageBuffer)
+        .flatten({ background: { r: 255, g: 255, b: 255 } })
+        .jpeg({ quality: q, progressive: true, optimizeCoding: true, chromaSubsampling: '4:2:0' })
+        .toBuffer();
+
+  let q = Math.min(100, Math.max(1, quality));
+  let buf = await encode(q);
+  while (buf.length > KLAVIYO_MAX_BYTES && q > 1) {
+    q = Math.max(1, q - 12);
+    buf = await encode(q);
   }
 
-  // PNG — lossless, no quality stepping
-  if (outFormat === 'png') {
-    const buf = await sharp(imageBuffer).png({ compressionLevel: 9 }).toBuffer();
-    const m = await sharp(buf).metadata();
-    return { buffer: buf, format: 'png', width: m.width, height: m.height };
+  // Safety: never return something larger than the original
+  if (buf.length >= imageBuffer.length) {
+    return { buffer: imageBuffer, format: metadata.format || 'png', width: metadata.width, height: metadata.height };
   }
 
-  // WebP — quality-controlled, supports transparency
-  if (outFormat === 'webp') {
-    let q = Math.min(100, Math.max(50, quality));
-    let buf, m;
-    for (let attempt = 0; attempt < 6; attempt++) {
-      buf = await sharp(imageBuffer).webp({ quality: q, lossless: false }).toBuffer();
-      m = await sharp(buf).metadata();
-      if (buf.length <= maxBytes) break;
-      q = Math.max(50, q - 8);
-    }
-    return { buffer: buf, format: 'webp', finalQuality: q, width: m.width, height: m.height };
-  }
-
-  // JPEG — flatten transparency, quality-controlled
-  let q = Math.min(100, Math.max(50, quality));
-  let buf, m;
-  for (let attempt = 0; attempt < 6; attempt++) {
-    buf = await sharp(imageBuffer)
-      .flatten({ background: { r: 255, g: 255, b: 255 } })
-      .jpeg({ quality: q, progressive: true, optimizeCoding: true, chromaSubsampling: '4:2:0' })
-      .toBuffer();
-    m = await sharp(buf).metadata();
-    if (buf.length <= maxBytes) break;
-    q = Math.max(50, q - 8);
-  }
-  return { buffer: buf, format: 'jpeg', finalQuality: q, width: m.width, height: m.height };
+  const m = await sharp(buf).metadata();
+  return { buffer: buf, format: outFormat, finalQuality: q, width: m.width, height: m.height };
 }
 
 async function main() {

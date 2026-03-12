@@ -89,14 +89,14 @@ def compress():
         if not result.passed_validation:
             recommendations.append({
                 'slice': slice_name,
-                'issue': f'{result.compressed_size // 1024}KB exceeds {max_kb}KB limit',
+                'issue': f'{result.compressed_size // 1024}KB exceeds 5MB Klaviyo limit',
                 'suggestion': f'Consider splitting "{slice_name}" into smaller sections'
             })
-        elif result.compressed_size > target_bytes:
+        elif result.compressed_size > 1024 * 1024:
             recommendations.append({
                 'slice': slice_name,
-                'issue': f'{result.compressed_size // 1024}KB exceeds {target_kb}KB target',
-                'suggestion': f'Consider splitting at a natural boundary within "{slice_name}"'
+                'issue': f'{result.compressed_size // 1024}KB — large image, may load slowly',
+                'suggestion': f'Consider splitting "{slice_name}" to improve email load time'
             })
 
     # Build summary
