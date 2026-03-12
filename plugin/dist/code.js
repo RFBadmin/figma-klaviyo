@@ -104,7 +104,19 @@
       init_export();
       init_figma_api();
       figma.showUI(__html__, { width: 400, height: 600, title: "Figma \u2192 Klaviyo" });
-      notifyAllPageFrames();
+      var initialSelected = getSelectedEmailFrames();
+      if (initialSelected.length > 0) {
+        const data = initialSelected.map((frame) => ({
+          id: frame.id,
+          name: frame.name,
+          width: frame.width,
+          height: frame.height,
+          existingSliceData: loadSliceData(frame.id)
+        }));
+        figma.ui.postMessage({ type: "FRAMES_SELECTED", data });
+      } else {
+        notifyAllPageFrames();
+      }
       figma.on("currentpagechange", () => {
         notifyAllPageFrames();
       });

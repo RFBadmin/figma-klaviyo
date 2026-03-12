@@ -121,6 +121,7 @@ export function DesignerMode({ frames }: Props) {
       await sliceFrame(targets[i]);
     }
     setBatchProgress(null);
+    setActiveFrameId(targets[0].id);
   }, [checkedIds, frames, sliceFrame]);
 
   const compressAndSave = useCallback(async (targetFrame: FrameInfo, currentState: FrameState) => {
@@ -221,16 +222,14 @@ export function DesignerMode({ frames }: Props) {
           const isChecked = checkedIds.has(f.id);
           const isActive = f.id === frame?.id;
           return (
-            <label
+            <div
               key={f.id}
               class={`frame-check-item ${isChecked ? 'checked' : ''} ${isActive ? 'active-frame' : ''}`}
-              onClick={() => setActiveFrameId(f.id)}
             >
               <input
                 type="checkbox"
                 checked={isChecked}
-                onChange={(e) => {
-                  (e as Event).stopPropagation();
+                onChange={() => {
                   setCheckedIds(prev => {
                     const next = new Set(prev);
                     next.has(f.id) ? next.delete(f.id) : next.add(f.id);
@@ -238,13 +237,19 @@ export function DesignerMode({ frames }: Props) {
                   });
                 }}
               />
-              <span class="frame-check-name" title={f.name}>{f.name}</span>
+              <span
+                class="frame-check-name"
+                title={f.name}
+                onClick={() => setActiveFrameId(f.id)}
+                style={{ cursor: 'pointer', flex: 1 }}
+              >{f.name}</span>
               <span class="frame-check-dims">{f.width}×{f.height}</span>
               {fs.step === 'saved' && <span class="frame-check-done">✓</span>}
               {(fs.step === 'analyzing' || fs.step === 'compressing') && (
                 <span class="frame-check-spinner" />
               )}
-            </label>
+              {fs.step === 'preview' && <span class="frame-check-badge">sliced</span>}
+            </div>
           );
         })}
       </div>

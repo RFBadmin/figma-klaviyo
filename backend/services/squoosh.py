@@ -1,11 +1,8 @@
-import subprocess
-import os
 import tempfile
-from pathlib import Path
+from io import BytesIO
 from PIL import Image
 from typing import Tuple
 from dataclasses import dataclass, field
-from io import BytesIO
 
 
 @dataclass
@@ -58,29 +55,28 @@ class SquooshService:
         max_size: int = 200 * 1024
     ) -> CompressionResult:
         """
-        Compress image using Squoosh CLI with Klaviyo optimization.
+        Compress image using Pillow with Klaviyo optimization.
         Implements progressive compression to meet size targets.
         No resizing is performed — original dimensions are preserved.
         """
-        input_path = os.path.join(self.output_dir, f"input_{filename}")
+        img = Image.open(BytesIO(image_bytes))
         original_size = len(image_bytes)
 
-        with open(input_path, 'wb') as f:
-            f.write(image_bytes)
-
-        format_type, initial_quality = self._analyze_image(input_path)
-
-        quality = initial_quality
-        compressed_data = image_bytes  # fallback
+        format_type, quality = self._analyze_image_pil(img)
+        compressed_data = image_bytes
         final_size = original_size
 
-        for attempt in range(4):
-            compressed_data, final_size = self._run_squoosh(input_path, format_type, quality)
+        for attempt in range(5):
+            compressed_data, final_size = self._compress_pil(img, format_type, quality)
 
             if final_size <= target_size:
                 break
             elif final_size <= max_size and attempt >= 2:
                 break
+            elif format_type == 'png' and final_size > max_size:
+                # PNG can't be quality-reduced → switch to JPEG
+                format_type = 'jpeg'
+                quality = 82
             else:
                 quality = max(50, quality - 10)
 
@@ -105,10 +101,8 @@ class SquooshService:
             warnings=warnings
         )
 
-    def _analyze_image(self, image_path: str) -> Tuple[str, int]:
+    def _analyze_image_pil(self, img: Image.Image) -> Tuple[str, int]:
         """Determine optimal format and starting quality from image content."""
-        img = Image.open(image_path)
-
         if img.width * img.height > 500_000:
             img_sample = img.resize((500, 500))
             colors = img_sample.getcolors(maxcolors=50_000)
@@ -116,49 +110,39 @@ class SquooshService:
             colors = img.getcolors(maxcolors=50_000)
 
         if colors is None:
-            return ('mozjpeg', 82)
+            return ('jpeg', 82)
 
         unique_colors = len(colors)
 
         if unique_colors < 256:
-            return ('oxipng', 2)
+            return ('png', 0)   # simple graphic → lossless PNG
         elif unique_colors < 5_000:
-            return ('oxipng', 3)
+            return ('png', 0)
         else:
-            return ('mozjpeg', 82)
+            return ('jpeg', 82)
 
-    def _run_squoosh(
-        self,
-        input_path: str,
-        format_type: str,
-        quality: int
-    ) -> Tuple[bytes, int]:
-        """Run Squoosh via @squoosh/lib Node.js script. No resizing."""
-        import base64
-        import json
+    def _compress_pil(self, img: Image.Image, format_type: str, quality: int) -> Tuple[bytes, int]:
+        """Compress using Pillow. Returns (bytes, size)."""
+        output = BytesIO()
 
-        with open(input_path, 'rb') as f:
-            image_base64 = base64.b64encode(f.read()).decode()
+        if format_type == 'jpeg':
+            # JPEG needs RGB — flatten any transparency onto white
+            if img.mode in ('RGBA', 'LA', 'P'):
+                bg = Image.new('RGB', img.size, (255, 255, 255))
+                src = img.convert('RGBA') if img.mode == 'P' else img
+                if src.mode in ('RGBA', 'LA'):
+                    bg.paste(src, mask=src.split()[-1])
+                else:
+                    bg.paste(src)
+                img_out = bg
+            else:
+                img_out = img.convert('RGB')
+            img_out.save(output, 'JPEG', quality=quality, optimize=True, progressive=True)
+        else:
+            # PNG — lossless, just maximize compression
+            img.save(output, 'PNG', optimize=True, compress_level=9)
 
-        payload = json.dumps({
-            'image_base64': image_base64,
-            'format': format_type,
-            'quality': quality
-        })
-
-        script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'squoosh_compress.mjs')
-        result = subprocess.run(
-            ['node', script_path],
-            input=payload.encode(),
-            capture_output=True,
-            timeout=90
-        )
-
-        if result.returncode != 0:
-            raise RuntimeError(f"Squoosh failed: {result.stderr.decode()}")
-
-        output = json.loads(result.stdout.decode().strip())
-        data = base64.b64decode(output['data_base64'])
+        data = output.getvalue()
         return data, len(data)
 
     def _get_dimensions(self, image_data: bytes) -> Tuple[int, int]:

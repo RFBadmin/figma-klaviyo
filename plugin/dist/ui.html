@@ -138,6 +138,7 @@
     .frame-check-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .frame-check-dims { color: #999; font-size: 10px; white-space: nowrap; }
     .frame-check-done { color: #22a06b; font-weight: 700; font-size: 11px; }
+    .frame-check-badge { font-size: 9px; background: #00cc66; color: #fff; padding: 1px 4px; border-radius: 3px; white-space: nowrap; }
     .frame-check-spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid #e5e5e5; border-top-color: #0099ff; border-radius: 50%; animation: spin 0.7s linear infinite; }
 
     /* ── Batch Progress ──────────────────────────────────── */
@@ -879,6 +880,7 @@
         yield sliceFrame(targets[i3]);
       }
       setBatchProgress(null);
+      setActiveFrameId(targets[0].id);
     }), [checkedIds, frames, sliceFrame]);
     const compressAndSave = q2((targetFrame, currentState) => __async(null, null, function* () {
       if (currentState.slices.length === 0) return;
@@ -976,18 +978,16 @@
           const isChecked = checkedIds.has(f4.id);
           const isActive = f4.id === (frame == null ? void 0 : frame.id);
           return /* @__PURE__ */ u3(
-            "label",
+            "div",
             {
               class: `frame-check-item ${isChecked ? "checked" : ""} ${isActive ? "active-frame" : ""}`,
-              onClick: () => setActiveFrameId(f4.id),
               children: [
                 /* @__PURE__ */ u3(
                   "input",
                   {
                     type: "checkbox",
                     checked: isChecked,
-                    onChange: (e3) => {
-                      e3.stopPropagation();
+                    onChange: () => {
                       setCheckedIds((prev) => {
                         const next = new Set(prev);
                         next.has(f4.id) ? next.delete(f4.id) : next.add(f4.id);
@@ -996,14 +996,24 @@
                     }
                   }
                 ),
-                /* @__PURE__ */ u3("span", { class: "frame-check-name", title: f4.name, children: f4.name }),
+                /* @__PURE__ */ u3(
+                  "span",
+                  {
+                    class: "frame-check-name",
+                    title: f4.name,
+                    onClick: () => setActiveFrameId(f4.id),
+                    style: { cursor: "pointer", flex: 1 },
+                    children: f4.name
+                  }
+                ),
                 /* @__PURE__ */ u3("span", { class: "frame-check-dims", children: [
                   f4.width,
                   "\xD7",
                   f4.height
                 ] }),
                 fs.step === "saved" && /* @__PURE__ */ u3("span", { class: "frame-check-done", children: "\u2713" }),
-                (fs.step === "analyzing" || fs.step === "compressing") && /* @__PURE__ */ u3("span", { class: "frame-check-spinner" })
+                (fs.step === "analyzing" || fs.step === "compressing") && /* @__PURE__ */ u3("span", { class: "frame-check-spinner" }),
+                fs.step === "preview" && /* @__PURE__ */ u3("span", { class: "frame-check-badge", children: "sliced" })
               ]
             },
             f4.id

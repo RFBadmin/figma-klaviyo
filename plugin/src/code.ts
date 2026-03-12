@@ -10,7 +10,20 @@ import type { UIMessage } from './types';
 figma.showUI(__html__, { width: 400, height: 600, title: 'Figma → Klaviyo' });
 
 // Notify UI of all email frames on the current page on launch
-notifyAllPageFrames();
+// If frames are already selected, show only those; otherwise show all
+const initialSelected = getSelectedEmailFrames();
+if (initialSelected.length > 0) {
+  const data = initialSelected.map(frame => ({
+    id: frame.id,
+    name: frame.name,
+    width: frame.width,
+    height: frame.height,
+    existingSliceData: loadSliceData(frame.id)
+  }));
+  figma.ui.postMessage({ type: 'FRAMES_SELECTED', data });
+} else {
+  notifyAllPageFrames();
+}
 
 // Refresh frame list when the user switches pages
 figma.on('currentpagechange', () => {
