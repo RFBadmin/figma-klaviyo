@@ -4,14 +4,14 @@ from typing import List, Optional
 
 class KlaviyoClient:
     BASE_URL = "https://a.klaviyo.com/api"
-    API_REVISION = "2024-02-15"
+    API_REVISION = "2026-01-15"
 
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.headers = {
             "Authorization": f"Klaviyo-API-Key {api_key}",
-            "accept": "application/json",
-            "content-type": "application/json",
+            "accept": "application/vnd.api+json",
+            "content-type": "application/vnd.api+json",
             "revision": self.API_REVISION
         }
 
@@ -26,7 +26,7 @@ class KlaviyoClient:
 
         upload_headers = {
             "Authorization": f"Klaviyo-API-Key {self.api_key}",
-            "accept": "application/json",
+            "accept": "application/vnd.api+json",
             "revision": self.API_REVISION
         }
 
@@ -69,7 +69,12 @@ class KlaviyoClient:
         template_id: str,
         send_time: Optional[str] = None
     ) -> dict:
-        """Create a new email campaign."""
+        """
+        Create a new email campaign and assign the template to it.
+        Klaviyo requires two calls:
+        1. POST /api/campaigns/        — creates campaign + auto-creates a message
+        2. POST /api/campaign-message-assign-template/ — links template to the message
+        """
         url = f"{self.BASE_URL}/campaigns/"
 
         payload = {
@@ -78,10 +83,11 @@ class KlaviyoClient:
                 "attributes": {
                     "name": name,
                     "audiences": {
-                        "included": [list_id]
+                        "included": [list_id],
+                        "excluded": []
                     },
                     "send_strategy": {
-                        "method": "immediate" if not send_time else "static",
+                        "method": "static" if send_time else "immediate",
                         **({"options_static": {"datetime": send_time}} if send_time else {})
                     },
                     "campaign-messages": {
@@ -89,12 +95,11 @@ class KlaviyoClient:
                             "type": "campaign-message",
                             "attributes": {
                                 "channel": "email",
-                                "label": "Email",
+                                "label": name,
                                 "content": {
                                     "subject": subject,
                                     "preview_text": preview_text
-                                },
-                                "template_id": template_id
+                                }
                             }
                         }]
                     }
@@ -104,7 +109,34 @@ class KlaviyoClient:
 
         response = requests.post(url, headers=self.headers, json=payload)
         response.raise_for_status()
-        return response.json()
+        campaign_data = response.json()
+
+        # Get the auto-created message ID, then assign the template to it
+        message_id = campaign_data['data']['relationships']['campaign-messages']['data'][0]['id']
+        self._assign_template_to_message(message_id, template_id)
+
+        return campaign_data
+
+    def _assign_template_to_message(self, message_id: str, template_id: str) -> None:
+        """Assign a template to a campaign message."""
+        url = f"{self.BASE_URL}/campaign-message-assign-template/"
+
+        payload = {
+            "data": {
+                "type": "campaign-message-assign-template",
+                "relationships": {
+                    "campaign-message": {
+                        "data": {"type": "campaign-message", "id": message_id}
+                    },
+                    "template": {
+                        "data": {"type": "template", "id": template_id}
+                    }
+                }
+            }
+        }
+
+        response = requests.post(url, headers=self.headers, json=payload)
+        response.raise_for_status()
 
     # ─── Lists ────────────────────────────────────────────────────────────────
 

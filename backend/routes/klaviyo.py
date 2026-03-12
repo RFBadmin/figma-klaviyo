@@ -71,50 +71,65 @@ def push():
 
     template_name = config.get('templateName', 'Untitled Email')
 
-    # ── Step 1: Upload images to Klaviyo CDN ────────────────────────────────
-    uploaded_slices = []
-    for i, slice_item in enumerate(slices):
-        image_bytes = _get_slice_image(slice_item)
-        if not image_bytes:
-            return jsonify({'error': f'No image data for slice "{slice_item.get("name")}"'}), 400
+    try:
+        # ── Step 1: Upload images to Klaviyo CDN ────────────────────────────
+        uploaded_slices = []
+        for i, slice_item in enumerate(slices):
+            image_bytes = _get_slice_image(slice_item)
+            if not image_bytes:
+                return jsonify({'error': f'No image data for slice "{slice_item.get("name")}"'}), 400
 
-        ext = 'jpg'
-        filename = f"{template_name.lower().replace(' ', '_')}_{slice_item.get('name', f'slice_{i}')}_{i}.{ext}"
-        klaviyo_url = client.upload_image(image_bytes, filename)
+            ext = 'jpg'
+            filename = f"{template_name.lower().replace(' ', '_')}_{slice_item.get('name', f'slice_{i}')}_{i}.{ext}"
+            klaviyo_url = client.upload_image(image_bytes, filename)
 
-        uploaded_slices.append({
-            **slice_item,
-            'klaviyo_url': klaviyo_url
-        })
+            uploaded_slices.append({
+                **slice_item,
+                'klaviyo_url': klaviyo_url
+            })
 
-    # ── Step 2: Build HTML ───────────────────────────────────────────────────
-    html = build_email_html(uploaded_slices)
+        # ── Step 2: Build HTML ───────────────────────────────────────────────
+        html = build_email_html(uploaded_slices)
 
-    # ── Step 3: Create Template ──────────────────────────────────────────────
-    template_result = client.create_template(name=template_name, html_content=html)
-    template_id = template_result['data']['id']
-    template_url = f"https://www.klaviyo.com/email-editor/{template_id}"
+        # ── Step 3: Create Template ──────────────────────────────────────────
+        template_result = client.create_template(name=template_name, html_content=html)
+        template_id = template_result['data']['id']
+        template_url = f"https://www.klaviyo.com/email-editor/{template_id}"
 
-    response = {
-        'templateId': template_id,
-        'templateUrl': template_url
-    }
+        response = {
+            'templateId': template_id,
+            'templateUrl': template_url
+        }
 
-    # ── Step 4: Create Campaign (optional) ──────────────────────────────────
-    if config.get('mode') == 'campaign':
-        campaign_result = client.create_campaign(
-            name=config.get('campaignName', template_name),
-            subject=config.get('subject', ''),
-            preview_text=config.get('previewText', ''),
-            list_id=config['listId'],
-            template_id=template_id,
-            send_time=config.get('sendTime')
-        )
-        campaign_id = campaign_result['data']['id']
-        response['campaignId'] = campaign_id
-        response['campaignUrl'] = f"https://www.klaviyo.com/campaigns/{campaign_id}"
+        # ── Step 4: Create Campaign (optional) ──────────────────────────────
+        if config.get('mode') == 'campaign':
+            list_id = config.get('listId', '')
+            if not list_id:
+                return jsonify({'error': 'listId is required for campaign mode'}), 400
 
-    return jsonify(response)
+            campaign_result = client.create_campaign(
+                name=config.get('campaignName', template_name),
+                subject=config.get('subject', ''),
+                preview_text=config.get('previewText', ''),
+                list_id=list_id,
+                template_id=template_id,
+                send_time=config.get('sendTime')
+            )
+            campaign_id = campaign_result['data']['id']
+            response['campaignId'] = campaign_id
+            response['campaignUrl'] = f"https://www.klaviyo.com/campaigns/{campaign_id}"
+
+        return jsonify(response)
+
+    except Exception as e:
+        # Surface the actual Klaviyo API error message
+        detail = str(e)
+        if hasattr(e, 'response') and e.response is not None:
+            try:
+                detail = e.response.json()
+            except Exception:
+                detail = e.response.text
+        return jsonify({'error': 'Klaviyo API error', 'detail': detail}), 502
 
 
 def _get_slice_image(slice_item: dict) -> bytes | None:
