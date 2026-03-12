@@ -446,7 +446,7 @@
 
   // src/components/SlicePreview.tsx
   var PREVIEW_WIDTH = 280;
-  function SlicePreview({ slices, frameHeight, imageBase64, onSlicesChange }) {
+  function SlicePreview({ slices, frameHeight, imageBase64, onSlicesChange, onReanalyze }) {
     const [dragging, setDragging] = d2(null);
     const [editingId, setEditingId] = d2(null);
     const scale = PREVIEW_WIDTH / 600;
@@ -515,9 +515,6 @@
       onSlicesChange(slices.map((s3) => s3.id === id ? __spreadProps(__spreadValues({}, s3), { name, alt_text: name }) : s3));
       setEditingId(null);
     }, [slices, onSlicesChange]);
-    const handleReanalyze = q2(() => {
-      window.dispatchEvent(new CustomEvent("reanalyze"));
-    }, []);
     return /* @__PURE__ */ u3("div", { class: "slice-preview", children: [
       /* @__PURE__ */ u3("div", { class: "preview-header", children: [
         /* @__PURE__ */ u3("span", { children: [
@@ -635,8 +632,8 @@
       ),
       /* @__PURE__ */ u3("div", { class: "slice-hint", children: "Click + on any slice to split it \u2022 Drag blue handles to adjust \u2022 Double-click label to rename" }),
       /* @__PURE__ */ u3("div", { class: "preview-actions", children: [
-        /* @__PURE__ */ u3("button", { onClick: handleReanalyze, children: "\u21BB Re-analyze" }),
-        /* @__PURE__ */ u3("button", { onClick: () => window.dispatchEvent(new CustomEvent("resetSlices")), children: "Reset" })
+        /* @__PURE__ */ u3("button", { onClick: onReanalyze, children: "\u21BB Re-analyze" }),
+        /* @__PURE__ */ u3("button", { onClick: onReanalyze, children: "Reset" })
       ] })
     ] });
   }
@@ -650,6 +647,7 @@
     step: "select",
     slices: [],
     imageBase64: null,
+    figmaSliceImages: null,
     compressedSlices: [],
     compressResponse: null,
     error: null
@@ -660,6 +658,9 @@
     const [frameStates, setFrameStates] = d2({});
     const [checkedIds, setCheckedIds] = d2(/* @__PURE__ */ new Set());
     const [batchProgress, setBatchProgress] = d2(null);
+    const [compressQuality, setCompressQuality] = d2(82);
+    const [compressMaxKb, setCompressMaxKb] = d2(200);
+    const [compressFormat, setCompressFormat] = d2("auto");
     const patchState = q2((frameId, patch) => {
       setFrameStates((prev) => {
         var _a2;
@@ -686,9 +687,26 @@
     }, [frames.map((f4) => f4.id).join(",")]);
     const frame = (_b = (_a = frames.find((f4) => f4.id === activeFrameId)) != null ? _a : frames[0]) != null ? _b : null;
     const state = frame ? (_c = frameStates[frame.id]) != null ? _c : defaultState() : defaultState();
-    const sliceFrame = q2((targetFrame) => __async(null, null, function* () {
+    const sliceFrame = q2((targetFrame, forceAI = false) => __async(null, null, function* () {
       patchState(targetFrame.id, { error: null, step: "analyzing" });
       try {
+        const figmaSlices = forceAI ? [] : yield requestFigmaSlices(targetFrame.id);
+        if (figmaSlices.length > 0) {
+          const newSlices2 = figmaSlices.map((s3, i3) => ({
+            id: `slice_${Date.now()}_${i3}`,
+            name: s3.name,
+            y_start: s3.y_start,
+            y_end: s3.y_end,
+            alt_text: s3.name
+          }));
+          patchState(targetFrame.id, {
+            slices: newSlices2,
+            figmaSliceImages: newSlices2.map((s3, i3) => ({ id: s3.id, image_base64: figmaSlices[i3].imageBase64 })),
+            imageBase64: null,
+            step: "preview"
+          });
+          return;
+        }
         const [base64, bands] = yield Promise.all([
           exportFullFrame(targetFrame.id),
           requestFrameLayout(targetFrame.id)
@@ -713,7 +731,7 @@
           y_end: s3.y_end,
           alt_text: s3.alt_text
         }));
-        patchState(targetFrame.id, { slices: newSlices, step: "preview" });
+        patchState(targetFrame.id, { slices: newSlices, figmaSliceImages: null, step: "preview" });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         patchState(targetFrame.id, { error: msg, step: "select" });
@@ -731,22 +749,55 @@
       setBatchProgress(null);
       setActiveFrameId(targets[0].id);
     }), [checkedIds, frames, sliceFrame]);
+    const applyToFrame = q2((targetFrame, currentState) => __async(null, null, function* () {
+      try {
+        const exported = yield createSliceNodes(targetFrame.id, currentState.slices);
+        patchState(targetFrame.id, {
+          figmaSliceImages: currentState.slices.map((s3, i3) => {
+            var _a2, _b2;
+            return { id: s3.id, image_base64: (_b2 = (_a2 = exported[i3]) == null ? void 0 : _a2.imageBase64) != null ? _b2 : "" };
+          }),
+          step: "applied"
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        patchState(targetFrame.id, { error: msg });
+      }
+    }), [patchState]);
     const compressAndSave = q2((targetFrame, currentState) => __async(null, null, function* () {
+      var _a2;
       if (currentState.slices.length === 0) return;
       patchState(targetFrame.id, { error: null, step: "compressing" });
       try {
-        let base64 = currentState.imageBase64;
-        if (!base64) {
-          base64 = yield exportFullFrame(targetFrame.id);
-          patchState(targetFrame.id, { imageBase64: base64 });
+        let sliceExports;
+        if ((_a2 = currentState.figmaSliceImages) == null ? void 0 : _a2.length) {
+          sliceExports = currentState.slices.map((s3, i3) => {
+            var _a3, _b2;
+            return {
+              id: s3.id,
+              name: s3.name,
+              image_base64: (_b2 = (_a3 = currentState.figmaSliceImages[i3]) == null ? void 0 : _a3.image_base64) != null ? _b2 : ""
+            };
+          });
+        } else {
+          let base64 = currentState.imageBase64;
+          if (!base64) {
+            base64 = yield exportFullFrame(targetFrame.id);
+            patchState(targetFrame.id, { imageBase64: base64 });
+          }
+          sliceExports = yield cropSlicesFromImage(base64, currentState.slices, targetFrame.width);
         }
-        const sliceExports = yield cropSlicesFromImage(base64, currentState.slices, targetFrame.width);
         const response = yield fetch(`${BACKEND_URL}/api/compress`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             slices: sliceExports,
-            settings: { target_size_kb: 100, max_size_kb: 200 }
+            settings: {
+              quality: compressQuality,
+              target_size_kb: 100,
+              max_size_kb: compressMaxKb,
+              format: compressFormat
+            }
           })
         });
         if (!response.ok) throw new Error(`Compression failed: ${response.statusText}`);
@@ -760,7 +811,7 @@
         const msg = err instanceof Error ? err.message : String(err);
         patchState(targetFrame.id, { error: msg, step: "preview" });
       }
-    }), [patchState]);
+    }), [patchState, compressQuality, compressMaxKb, compressFormat]);
     const saveDesign = q2((targetFrame, currentState) => {
       const updatedSlices = currentState.slices.map((s3) => {
         const compressed = currentState.compressedSlices.find((c3) => c3.id === s3.id);
@@ -879,16 +930,24 @@
           frame,
           state,
           onSlice: () => sliceFrame(frame),
+          onReSlice: () => sliceFrame(frame, true),
           onSlicesChange: (slices) => patchState(frame.id, { slices }),
+          onApplyToFrame: () => applyToFrame(frame, state),
           onCompress: () => compressAndSave(frame, state),
           onSave: () => saveDesign(frame, state),
           onStepChange: (step) => patchState(frame.id, { step }),
-          onErrorDismiss: () => patchState(frame.id, { error: null })
+          onErrorDismiss: () => patchState(frame.id, { error: null }),
+          compressQuality,
+          compressMaxKb,
+          compressFormat,
+          onQualityChange: setCompressQuality,
+          onMaxKbChange: setCompressMaxKb,
+          onFormatChange: setCompressFormat
         }
       )
     ] });
   }
-  function FrameWorkflow({ frame, state, onSlice, onSlicesChange, onCompress, onSave, onStepChange, onErrorDismiss }) {
+  function FrameWorkflow({ frame, state, onSlice, onReSlice, onSlicesChange, onApplyToFrame, onCompress, onSave, onStepChange, onErrorDismiss, compressQuality, compressMaxKb, compressFormat, onQualityChange, onMaxKbChange, onFormatChange }) {
     const { step, slices, imageBase64, compressResponse, error } = state;
     return /* @__PURE__ */ u3("div", { children: [
       error && /* @__PURE__ */ u3("div", { class: "error-banner", children: [
@@ -920,11 +979,82 @@
             slices,
             frameHeight: frame.height,
             imageBase64,
-            onSlicesChange
+            onSlicesChange,
+            onReanalyze: onReSlice
           }
         ),
         /* @__PURE__ */ u3("div", { class: "action-row", children: [
-          /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: onSlice, children: "\u21BB Re-slice" }),
+          /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: onReSlice, children: "\u21BB Re-slice" }),
+          /* @__PURE__ */ u3("button", { class: "btn-primary", onClick: onApplyToFrame, children: "Apply to Frame \u2192" })
+        ] })
+      ] }),
+      step === "applied" && /* @__PURE__ */ u3("div", { class: "step-panel", children: [
+        /* @__PURE__ */ u3("p", { class: "success-inline", children: "\u2713 Slice nodes created on frame in Figma" }),
+        /* @__PURE__ */ u3("div", { class: "compress-settings", children: [
+          /* @__PURE__ */ u3("div", { class: "format-row", children: [
+            /* @__PURE__ */ u3("span", { class: "settings-label", children: "Format" }),
+            /* @__PURE__ */ u3("div", { class: "format-options", children: ["auto", "jpeg", "png", "webp"].map((fmt) => /* @__PURE__ */ u3(
+              "button",
+              {
+                class: `format-btn ${compressFormat === fmt ? "active" : ""}`,
+                onClick: () => onFormatChange(fmt),
+                children: fmt === "auto" ? "Auto" : fmt.toUpperCase()
+              },
+              fmt
+            )) }),
+            compressFormat === "webp" && /* @__PURE__ */ u3("span", { class: "format-warning", children: "\u26A0 WebP has limited email client support" }),
+            compressFormat === "png" && /* @__PURE__ */ u3("span", { class: "format-note", children: "PNG is lossless \u2014 quality slider not applied" })
+          ] }),
+          compressFormat !== "png" && /* @__PURE__ */ u3("div", { class: "slider-row", children: [
+            /* @__PURE__ */ u3("label", { children: [
+              "Quality ",
+              /* @__PURE__ */ u3("span", { children: [
+                compressQuality,
+                "%"
+              ] })
+            ] }),
+            /* @__PURE__ */ u3(
+              "input",
+              {
+                type: "range",
+                min: 50,
+                max: 100,
+                value: compressQuality,
+                onInput: (e3) => onQualityChange(+e3.target.value)
+              }
+            ),
+            /* @__PURE__ */ u3("div", { class: "slider-hints", children: [
+              /* @__PURE__ */ u3("span", { children: "Smaller file" }),
+              /* @__PURE__ */ u3("span", { children: "Sharper image" })
+            ] })
+          ] }),
+          /* @__PURE__ */ u3("div", { class: "slider-row", children: [
+            /* @__PURE__ */ u3("label", { children: [
+              "Max size per slice ",
+              /* @__PURE__ */ u3("span", { children: [
+                compressMaxKb,
+                " KB"
+              ] })
+            ] }),
+            /* @__PURE__ */ u3(
+              "input",
+              {
+                type: "range",
+                min: 50,
+                max: 300,
+                step: 10,
+                value: compressMaxKb,
+                onInput: (e3) => onMaxKbChange(+e3.target.value)
+              }
+            ),
+            /* @__PURE__ */ u3("div", { class: "slider-hints", children: [
+              /* @__PURE__ */ u3("span", { children: "50 KB" }),
+              /* @__PURE__ */ u3("span", { children: "300 KB" })
+            ] })
+          ] })
+        ] }),
+        /* @__PURE__ */ u3("div", { class: "action-row", children: [
+          /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: () => onStepChange("preview"), children: "\u2190 Adjust" }),
           /* @__PURE__ */ u3("button", { class: "btn-primary", onClick: onCompress, children: "Compress \u2192" })
         ] })
       ] }),
@@ -933,7 +1063,7 @@
         /* @__PURE__ */ u3("p", { children: [
           "Compressing ",
           slices.length,
-          " slices with Squoosh\u2026"
+          " slices with Sharp\u2026"
         ] })
       ] }),
       step === "results" && compressResponse && /* @__PURE__ */ u3("div", { class: "step-panel", children: [
@@ -1050,12 +1180,16 @@
         const img = new Image();
         img.onload = () => {
           const scale = img.naturalWidth / frameWidth;
-          const results = slices.map((slice) => {
+          const results = [];
+          for (const slice of slices) {
             const canvas = document.createElement("canvas");
             canvas.width = img.naturalWidth;
             canvas.height = Math.round((slice.y_end - slice.y_start) * scale);
             const ctx = canvas.getContext("2d");
-            if (!ctx) throw new Error("Canvas 2D context unavailable");
+            if (!ctx) {
+              reject(new Error("Canvas 2D context unavailable"));
+              return;
+            }
             ctx.drawImage(
               img,
               0,
@@ -1067,17 +1201,57 @@
               canvas.width,
               canvas.height
             );
-            return {
+            results.push({
               id: slice.id,
               name: slice.name,
               image_base64: canvas.toDataURL("image/png").split(",")[1]
-            };
-          });
+            });
+          }
           resolve(results);
         };
         img.onerror = () => reject(new Error("Failed to load frame image for cropping"));
         img.src = `data:image/png;base64,${imageBase64}`;
       });
+    });
+  }
+  function requestFigmaSlices(frameId) {
+    return new Promise((resolve, reject) => {
+      const handler = (event) => {
+        var _a;
+        const msg = (_a = event.data) == null ? void 0 : _a.pluginMessage;
+        if ((msg == null ? void 0 : msg.type) === "FIGMA_SLICES_LOADED") {
+          window.removeEventListener("message", handler);
+          resolve(msg.slices);
+        } else if ((msg == null ? void 0 : msg.type) === "ERROR") {
+          window.removeEventListener("message", handler);
+          reject(new Error(msg.message));
+        }
+      };
+      window.addEventListener("message", handler);
+      parent.postMessage({ pluginMessage: { type: "GET_FIGMA_SLICES", frameId } }, "*");
+    });
+  }
+  function createSliceNodes(frameId, slices) {
+    return new Promise((resolve, reject) => {
+      const handler = (event) => {
+        var _a;
+        const msg = (_a = event.data) == null ? void 0 : _a.pluginMessage;
+        if ((msg == null ? void 0 : msg.type) === "SLICE_NODES_CREATED") {
+          window.removeEventListener("message", handler);
+          resolve(msg.slices);
+        } else if ((msg == null ? void 0 : msg.type) === "ERROR") {
+          window.removeEventListener("message", handler);
+          reject(new Error(msg.message));
+        }
+      };
+      window.addEventListener("message", handler);
+      parent.postMessage({
+        pluginMessage: {
+          type: "CREATE_SLICE_NODES",
+          frameId,
+          slices: slices.map((s3) => ({ name: s3.name, y_start: s3.y_start, y_end: s3.y_end }))
+        }
+      }, "*");
     });
   }
 
@@ -1451,7 +1625,7 @@
               {
                 srcDoc: previewHtml,
                 style: { width: "100%", height: 300, border: "1px solid #ccc" },
-                sandbox: "allow-same-origin"
+                sandbox: "allow-same-origin allow-scripts"
               }
             )
           ] })

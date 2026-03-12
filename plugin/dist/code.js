@@ -136,7 +136,7 @@
         }
       });
       figma.ui.onmessage = (msg) => __async(null, null, function* () {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e, _f, _g, _h;
         try {
           switch (msg.type) {
             case "GET_ALL_FRAMES": {
@@ -165,6 +165,55 @@
               figma.ui.postMessage({ type: "FRAME_LAYOUT", bands, frameHeight: layoutFrame.height });
               break;
             }
+            case "GET_FIGMA_SLICES": {
+              const frameNode = figma.getNodeById(msg.frameId);
+              if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
+              const frameAbsY = (_d = (_c = frameNode.absoluteBoundingBox) == null ? void 0 : _c.y) != null ? _d : 0;
+              const sliceNodes = frameNode.children.filter((n) => n.type === "SLICE" && n.visible);
+              if (sliceNodes.length === 0) {
+                figma.ui.postMessage({ type: "FIGMA_SLICES_LOADED", slices: [] });
+                break;
+              }
+              const figmaSlices = [];
+              for (let i = 0; i < sliceNodes.length; i++) {
+                const node = sliceNodes[i];
+                const bbox = node.absoluteBoundingBox;
+                const y_start = Math.max(0, Math.round(bbox.y - frameAbsY));
+                const y_end = Math.min(frameNode.height, Math.round(bbox.y - frameAbsY + bbox.height));
+                if (y_end <= y_start) continue;
+                const bytes = yield node.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: 2 } });
+                figmaSlices.push({ name: node.name || `slice_${i + 1}`, y_start, y_end, imageBase64: uint8ArrayToBase64(bytes) });
+              }
+              figmaSlices.sort((a, b) => a.y_start - b.y_start);
+              figma.ui.postMessage({ type: "FIGMA_SLICES_LOADED", slices: figmaSlices });
+              break;
+            }
+            case "CREATE_SLICE_NODES": {
+              const frameNode = figma.getNodeById(msg.frameId);
+              if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
+              const existing = frameNode.children.filter((n) => n.type === "SLICE");
+              for (const node of existing) node.remove();
+              for (const slice of msg.slices) {
+                const sliceNode = figma.createSlice();
+                frameNode.appendChild(sliceNode);
+                sliceNode.x = 0;
+                sliceNode.y = slice.y_start;
+                sliceNode.resize(frameNode.width, slice.y_end - slice.y_start);
+                sliceNode.name = slice.name;
+              }
+              const createdNodes = frameNode.children.filter((n) => n.type === "SLICE");
+              const absY = (_f = (_e = frameNode.absoluteBoundingBox) == null ? void 0 : _e.y) != null ? _f : 0;
+              const exportedSlices = [];
+              for (const node of createdNodes) {
+                const bytes = yield node.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: 2 } });
+                const bbox = node.absoluteBoundingBox;
+                const y_start = Math.max(0, Math.round(bbox.y - absY));
+                const y_end = Math.min(frameNode.height, Math.round(bbox.y - absY + bbox.height));
+                exportedSlices.push({ name: node.name, y_start, y_end, imageBase64: uint8ArrayToBase64(bytes) });
+              }
+              figma.ui.postMessage({ type: "SLICE_NODES_CREATED", slices: exportedSlices });
+              break;
+            }
             case "SAVE_SLICE_DATA": {
               saveSliceData(msg.frameId, msg.data);
               figma.ui.postMessage({ type: "SLICE_DATA_SAVED" });
@@ -182,7 +231,7 @@
             case "GET_USER_INFO": {
               figma.ui.postMessage({
                 type: "USER_INFO",
-                name: (_d = (_c = figma.currentUser) == null ? void 0 : _c.name) != null ? _d : "Unknown"
+                name: (_h = (_g = figma.currentUser) == null ? void 0 : _g.name) != null ? _h : "Unknown"
               });
               break;
             }

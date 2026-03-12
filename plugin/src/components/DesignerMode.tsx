@@ -6,12 +6,13 @@ import type { FrameInfo } from '../ui';
 
 const BACKEND_URL = 'https://figma-klaviyo-production.up.railway.app';
 
-type Step = 'select' | 'analyzing' | 'preview' | 'compressing' | 'results' | 'saved';
+type Step = 'select' | 'analyzing' | 'preview' | 'applied' | 'compressing' | 'results' | 'saved';
 
 interface FrameState {
   step: Step;
   slices: Slice[];
   imageBase64: string | null;
+  figmaSliceImages: Array<{ id: string; image_base64: string }> | null;
   compressedSlices: CompressedSlice[];
   compressResponse: CompressResponse | null;
   error: string | null;
@@ -21,6 +22,7 @@ const defaultState = (): FrameState => ({
   step: 'select',
   slices: [],
   imageBase64: null,
+  figmaSliceImages: null,
   compressedSlices: [],
   compressResponse: null,
   error: null,
@@ -35,6 +37,9 @@ export function DesignerMode({ frames }: Props) {
   const [frameStates, setFrameStates] = useState<Record<string, FrameState>>({});
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
+  const [compressQuality, setCompressQuality] = useState<number>(82);
+  const [compressMaxKb, setCompressMaxKb] = useState<number>(200);
+  const [compressFormat, setCompressFormat] = useState<'auto' | 'jpeg' | 'png' | 'webp'>('auto');
 
   const patchState = useCallback((frameId: string, patch: Partial<FrameState>) => {
     setFrameStates(prev => ({
@@ -73,9 +78,29 @@ export function DesignerMode({ frames }: Props) {
 
   // ─── Actions ──────────────────────────────────────────────────────────────
 
-  const sliceFrame = useCallback(async (targetFrame: FrameInfo) => {
+  const sliceFrame = useCallback(async (targetFrame: FrameInfo, forceAI = false) => {
     patchState(targetFrame.id, { error: null, step: 'analyzing' });
     try {
+      // ── Check for existing Figma Slice nodes first (skip when re-slicing) ─
+      const figmaSlices = forceAI ? [] : await requestFigmaSlices(targetFrame.id);
+      if (figmaSlices.length > 0) {
+        const newSlices: Slice[] = figmaSlices.map((s, i) => ({
+          id: `slice_${Date.now()}_${i}`,
+          name: s.name,
+          y_start: s.y_start,
+          y_end: s.y_end,
+          alt_text: s.name
+        }));
+        patchState(targetFrame.id, {
+          slices: newSlices,
+          figmaSliceImages: newSlices.map((s, i) => ({ id: s.id, image_base64: figmaSlices[i].imageBase64 })),
+          imageBase64: null,
+          step: 'preview'
+        });
+        return;
+      }
+
+      // ── No Figma Slices — run AI analysis ───────────────────────────────
       const [base64, bands] = await Promise.all([
         exportFullFrame(targetFrame.id),
         requestFrameLayout(targetFrame.id)
@@ -104,7 +129,7 @@ export function DesignerMode({ frames }: Props) {
         alt_text: s.alt_text
       }));
 
-      patchState(targetFrame.id, { slices: newSlices, step: 'preview' });
+      patchState(targetFrame.id, { slices: newSlices, figmaSliceImages: null, step: 'preview' });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       patchState(targetFrame.id, { error: msg, step: 'select' });
@@ -124,24 +149,52 @@ export function DesignerMode({ frames }: Props) {
     setActiveFrameId(targets[0].id);
   }, [checkedIds, frames, sliceFrame]);
 
+  const applyToFrame = useCallback(async (targetFrame: FrameInfo, currentState: FrameState) => {
+    try {
+      const exported = await createSliceNodes(targetFrame.id, currentState.slices);
+      patchState(targetFrame.id, {
+        figmaSliceImages: currentState.slices.map((s, i) => ({ id: s.id, image_base64: exported[i]?.imageBase64 ?? '' })),
+        step: 'applied'
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      patchState(targetFrame.id, { error: msg });
+    }
+  }, [patchState]);
+
   const compressAndSave = useCallback(async (targetFrame: FrameInfo, currentState: FrameState) => {
     if (currentState.slices.length === 0) return;
     patchState(targetFrame.id, { error: null, step: 'compressing' });
 
     try {
-      let base64 = currentState.imageBase64;
-      if (!base64) {
-        base64 = await exportFullFrame(targetFrame.id);
-        patchState(targetFrame.id, { imageBase64: base64 });
+      let sliceExports: { id: string; name: string; image_base64: string }[];
+      if (currentState.figmaSliceImages?.length) {
+        // Use pre-exported Figma Slice images — no canvas crop needed
+        sliceExports = currentState.slices.map((s, i) => ({
+          id: s.id,
+          name: s.name,
+          image_base64: currentState.figmaSliceImages![i]?.image_base64 ?? ''
+        }));
+      } else {
+        let base64 = currentState.imageBase64;
+        if (!base64) {
+          base64 = await exportFullFrame(targetFrame.id);
+          patchState(targetFrame.id, { imageBase64: base64 });
+        }
+        sliceExports = await cropSlicesFromImage(base64, currentState.slices, targetFrame.width);
       }
-      const sliceExports = await cropSlicesFromImage(base64, currentState.slices, targetFrame.width);
 
       const response = await fetch(`${BACKEND_URL}/api/compress`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           slices: sliceExports,
-          settings: { target_size_kb: 100, max_size_kb: 200 }
+          settings: {
+            quality: compressQuality,
+            target_size_kb: 100,
+            max_size_kb: compressMaxKb,
+            format: compressFormat
+          }
         })
       });
 
@@ -157,7 +210,7 @@ export function DesignerMode({ frames }: Props) {
       const msg = err instanceof Error ? err.message : String(err);
       patchState(targetFrame.id, { error: msg, step: 'preview' });
     }
-  }, [patchState]);
+  }, [patchState, compressQuality, compressMaxKb, compressFormat]);
 
   const saveDesign = useCallback((targetFrame: FrameInfo, currentState: FrameState) => {
     const updatedSlices = currentState.slices.map(s => {
@@ -269,11 +322,19 @@ export function DesignerMode({ frames }: Props) {
           frame={frame}
           state={state}
           onSlice={() => sliceFrame(frame)}
+          onReSlice={() => sliceFrame(frame, true)}
           onSlicesChange={(slices) => patchState(frame.id, { slices })}
+          onApplyToFrame={() => applyToFrame(frame, state)}
           onCompress={() => compressAndSave(frame, state)}
           onSave={() => saveDesign(frame, state)}
           onStepChange={(step) => patchState(frame.id, { step })}
           onErrorDismiss={() => patchState(frame.id, { error: null })}
+          compressQuality={compressQuality}
+          compressMaxKb={compressMaxKb}
+          compressFormat={compressFormat}
+          onQualityChange={setCompressQuality}
+          onMaxKbChange={setCompressMaxKb}
+          onFormatChange={setCompressFormat}
         />
       )}
     </div>
@@ -286,14 +347,22 @@ interface WorkflowProps {
   frame: FrameInfo;
   state: FrameState;
   onSlice: () => void;
+  onReSlice: () => void;
   onSlicesChange: (slices: Slice[]) => void;
+  onApplyToFrame: () => void;
   onCompress: () => void;
   onSave: () => void;
   onStepChange: (step: Step) => void;
   onErrorDismiss: () => void;
+  compressQuality: number;
+  compressMaxKb: number;
+  compressFormat: 'auto' | 'jpeg' | 'png' | 'webp';
+  onQualityChange: (v: number) => void;
+  onMaxKbChange: (v: number) => void;
+  onFormatChange: (v: 'auto' | 'jpeg' | 'png' | 'webp') => void;
 }
 
-function FrameWorkflow({ frame, state, onSlice, onSlicesChange, onCompress, onSave, onStepChange, onErrorDismiss }: WorkflowProps) {
+function FrameWorkflow({ frame, state, onSlice, onReSlice, onSlicesChange, onApplyToFrame, onCompress, onSave, onStepChange, onErrorDismiss, compressQuality, compressMaxKb, compressFormat, onQualityChange, onMaxKbChange, onFormatChange }: WorkflowProps) {
   const { step, slices, imageBase64, compressResponse, error } = state;
 
   return (
@@ -335,9 +404,60 @@ function FrameWorkflow({ frame, state, onSlice, onSlicesChange, onCompress, onSa
             frameHeight={frame.height}
             imageBase64={imageBase64}
             onSlicesChange={onSlicesChange}
+            onReanalyze={onReSlice}
           />
           <div class="action-row">
-            <button class="btn-secondary" onClick={onSlice}>↻ Re-slice</button>
+            <button class="btn-secondary" onClick={onReSlice}>↻ Re-slice</button>
+            <button class="btn-primary" onClick={onApplyToFrame}>Apply to Frame →</button>
+          </div>
+        </div>
+      )}
+
+      {step === 'applied' && (
+        <div class="step-panel">
+          <p class="success-inline">✓ Slice nodes created on frame in Figma</p>
+
+          <div class="compress-settings">
+            <div class="format-row">
+              <span class="settings-label">Format</span>
+              <div class="format-options">
+                {(['auto', 'jpeg', 'png', 'webp'] as const).map(fmt => (
+                  <button
+                    key={fmt}
+                    class={`format-btn ${compressFormat === fmt ? 'active' : ''}`}
+                    onClick={() => onFormatChange(fmt)}
+                  >
+                    {fmt === 'auto' ? 'Auto' : fmt.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              {compressFormat === 'webp' && (
+                <span class="format-warning">⚠ WebP has limited email client support</span>
+              )}
+              {compressFormat === 'png' && (
+                <span class="format-note">PNG is lossless — quality slider not applied</span>
+              )}
+            </div>
+
+            {compressFormat !== 'png' && (
+              <div class="slider-row">
+                <label>Quality <span>{compressQuality}%</span></label>
+                <input type="range" min={50} max={100} value={compressQuality}
+                  onInput={(e) => onQualityChange(+(e.target as HTMLInputElement).value)} />
+                <div class="slider-hints"><span>Smaller file</span><span>Sharper image</span></div>
+              </div>
+            )}
+
+            <div class="slider-row">
+              <label>Max size per slice <span>{compressMaxKb} KB</span></label>
+              <input type="range" min={50} max={300} step={10} value={compressMaxKb}
+                onInput={(e) => onMaxKbChange(+(e.target as HTMLInputElement).value)} />
+              <div class="slider-hints"><span>50 KB</span><span>300 KB</span></div>
+            </div>
+          </div>
+
+          <div class="action-row">
+            <button class="btn-secondary" onClick={() => onStepChange('preview')}>← Adjust</button>
             <button class="btn-primary" onClick={onCompress}>Compress →</button>
           </div>
         </div>
@@ -346,7 +466,7 @@ function FrameWorkflow({ frame, state, onSlice, onSlicesChange, onCompress, onSa
       {step === 'compressing' && (
         <div class="step-panel loading">
           <div class="spinner" />
-          <p>Compressing {slices.length} slices with Squoosh…</p>
+          <p>Compressing {slices.length} slices with Sharp…</p>
         </div>
       )}
 
@@ -475,27 +595,70 @@ async function cropSlicesFromImage(
     const img = new Image();
     img.onload = () => {
       const scale = img.naturalWidth / frameWidth;
-      const results = slices.map(slice => {
+      const results: { id: string; name: string; image_base64: string }[] = [];
+      for (const slice of slices) {
         const canvas = document.createElement('canvas');
         canvas.width = img.naturalWidth;
         canvas.height = Math.round((slice.y_end - slice.y_start) * scale);
         const ctx = canvas.getContext('2d');
-        if (!ctx) throw new Error('Canvas 2D context unavailable');
+        if (!ctx) { reject(new Error('Canvas 2D context unavailable')); return; }
         ctx.drawImage(
           img,
           0, Math.round(slice.y_start * scale),
           img.naturalWidth, canvas.height,
           0, 0, canvas.width, canvas.height
         );
-        return {
+        results.push({
           id: slice.id,
           name: slice.name,
           image_base64: canvas.toDataURL('image/png').split(',')[1]
-        };
-      });
+        });
+      }
       resolve(results);
     };
     img.onerror = () => reject(new Error('Failed to load frame image for cropping'));
     img.src = `data:image/png;base64,${imageBase64}`;
+  });
+}
+
+/** Read existing Figma SliceNodes from a frame and return their positions + exported images. */
+function requestFigmaSlices(frameId: string): Promise<Array<{ name: string; y_start: number; y_end: number; imageBase64: string }>> {
+  return new Promise((resolve, reject) => {
+    const handler = (event: MessageEvent) => {
+      const msg = event.data?.pluginMessage;
+      if (msg?.type === 'FIGMA_SLICES_LOADED') {
+        window.removeEventListener('message', handler);
+        resolve(msg.slices);
+      } else if (msg?.type === 'ERROR') {
+        window.removeEventListener('message', handler);
+        reject(new Error(msg.message));
+      }
+    };
+    window.addEventListener('message', handler);
+    parent.postMessage({ pluginMessage: { type: 'GET_FIGMA_SLICES', frameId } }, '*');
+  });
+}
+
+/** Create Figma SliceNodes on the frame matching current slice boundaries, then export each. */
+function createSliceNodes(frameId: string, slices: Slice[]): Promise<Array<{ name: string; y_start: number; y_end: number; imageBase64: string }>> {
+  return new Promise((resolve, reject) => {
+    const handler = (event: MessageEvent) => {
+      const msg = event.data?.pluginMessage;
+      if (msg?.type === 'SLICE_NODES_CREATED') {
+        window.removeEventListener('message', handler);
+        resolve(msg.slices);
+      } else if (msg?.type === 'ERROR') {
+        window.removeEventListener('message', handler);
+        reject(new Error(msg.message));
+      }
+    };
+    window.addEventListener('message', handler);
+    parent.postMessage({
+      pluginMessage: {
+        type: 'CREATE_SLICE_NODES',
+        frameId,
+        slices: slices.map(s => ({ name: s.name, y_start: s.y_start, y_end: s.y_end }))
+      }
+    }, '*');
   });
 }

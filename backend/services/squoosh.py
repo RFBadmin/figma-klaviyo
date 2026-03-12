@@ -1,8 +1,9 @@
-import tempfile
-from io import BytesIO
-from PIL import Image
-from typing import Tuple
+import base64
+import json
+import os
+import subprocess
 from dataclasses import dataclass, field
+from typing import List
 
 
 @dataclass
@@ -34,127 +35,93 @@ class CompressionResult:
         return 'failed'
 
 
-# Klaviyo optimization targets (size only — no dimension constraints)
 KLAVIYO_LIMITS = {
-    'max_file_size': 200 * 1024,       # 200KB hard limit per slice
-    'target_file_size': 100 * 1024,    # 100KB ideal target
-    'warn_file_size': 150 * 1024,      # 150KB warning threshold
-    'total_email_target': 500 * 1024,  # 500KB total for all slices
+    'max_file_size': 200 * 1024,
+    'target_file_size': 100 * 1024,
+    'warn_file_size': 150 * 1024,
+    'total_email_target': 500 * 1024,
 }
+
+_SCRIPT = os.path.join(os.path.dirname(__file__), '..', 'compress_sharp.js')
 
 
 class SquooshService:
-    def __init__(self):
-        self.output_dir = tempfile.mkdtemp()
+    def compress_batch(
+        self,
+        slices: List[dict],
+        target_size: int = 100 * 1024,
+        max_size: int = 200 * 1024,
+        quality: int = 82,
+        format: str = 'auto',
+    ) -> List[CompressionResult]:
+        """Compress all slices in one Sharp subprocess call."""
+        payload = json.dumps({
+            'slices': slices,
+            'settings': {
+                'quality': quality,
+                'target_size_kb': target_size // 1024,
+                'max_size_kb': max_size // 1024,
+                'format': format,
+            }
+        })
+
+        proc = subprocess.run(
+            ['node', _SCRIPT],
+            input=payload,
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+
+        if proc.returncode != 0:
+            raise RuntimeError(f"Sharp failed: {proc.stderr[:500]}")
+
+        output = json.loads(proc.stdout)
+        results = []
+        for r in output['results']:
+            compressed_bytes = base64.b64decode(r['compressed_data'])
+            max_kb = max_size // 1024
+            passed = r['compressed_size'] <= max_size
+            warnings = []
+            if not passed:
+                warnings.append(f"Exceeds {max_kb}KB limit ({r['compressed_size'] // 1024}KB) — consider splitting")
+            elif r['compressed_size'] > KLAVIYO_LIMITS['warn_file_size']:
+                warnings.append(f"Large file ({r['compressed_size'] // 1024}KB) — may load slowly on mobile")
+
+            results.append(CompressionResult(
+                data=compressed_bytes,
+                format=r['format'],
+                original_size=r['original_size'],
+                compressed_size=r['compressed_size'],
+                width=r['width'],
+                height=r['height'],
+                passed_validation=passed,
+                warnings=warnings,
+            ))
+        return results
 
     def compress_image(
         self,
         image_bytes: bytes,
         filename: str,
         target_size: int = 100 * 1024,
-        max_size: int = 200 * 1024
+        max_size: int = 200 * 1024,
+        quality: int = 82,
+        format: str = 'auto',
     ) -> CompressionResult:
-        """
-        Compress image using Pillow with Klaviyo optimization.
-        Implements progressive compression to meet size targets.
-        No resizing is performed — original dimensions are preserved.
-        """
-        img = Image.open(BytesIO(image_bytes))
-        original_size = len(image_bytes)
-
-        format_type, quality = self._analyze_image_pil(img)
-        compressed_data = image_bytes
-        final_size = original_size
-
-        for attempt in range(5):
-            compressed_data, final_size = self._compress_pil(img, format_type, quality)
-
-            if final_size <= target_size:
-                break
-            elif final_size <= max_size and attempt >= 2:
-                break
-            elif format_type == 'png' and final_size > max_size:
-                # PNG can't be quality-reduced → switch to JPEG
-                format_type = 'jpeg'
-                quality = 82
-            else:
-                quality = max(50, quality - 10)
-
-        warnings = []
-        passed = final_size <= max_size
-
-        if not passed:
-            warnings.append(f"Exceeds 200KB limit ({final_size // 1024}KB) — consider splitting this slice")
-        elif final_size > KLAVIYO_LIMITS['warn_file_size']:
-            warnings.append(f"Large file ({final_size // 1024}KB) — may load slowly on mobile")
-
-        width, height = self._get_dimensions(compressed_data)
-
-        return CompressionResult(
-            data=compressed_data,
-            format=format_type,
-            original_size=original_size,
-            compressed_size=final_size,
-            width=width,
-            height=height,
-            passed_validation=passed,
-            warnings=warnings
+        name = filename.rsplit('.', 1)[0]
+        results = self.compress_batch(
+            [{'id': 'single', 'name': name, 'image_base64': base64.b64encode(image_bytes).decode()}],
+            target_size=target_size,
+            max_size=max_size,
+            quality=quality,
+            format=format,
         )
-
-    def _analyze_image_pil(self, img: Image.Image) -> Tuple[str, int]:
-        """Determine optimal format and starting quality from image content."""
-        if img.width * img.height > 500_000:
-            img_sample = img.resize((500, 500))
-            colors = img_sample.getcolors(maxcolors=50_000)
-        else:
-            colors = img.getcolors(maxcolors=50_000)
-
-        if colors is None:
-            return ('jpeg', 82)
-
-        unique_colors = len(colors)
-
-        if unique_colors < 256:
-            return ('png', 0)   # simple graphic → lossless PNG
-        elif unique_colors < 5_000:
-            return ('png', 0)
-        else:
-            return ('jpeg', 82)
-
-    def _compress_pil(self, img: Image.Image, format_type: str, quality: int) -> Tuple[bytes, int]:
-        """Compress using Pillow. Returns (bytes, size)."""
-        output = BytesIO()
-
-        if format_type == 'jpeg':
-            # JPEG needs RGB — flatten any transparency onto white
-            if img.mode in ('RGBA', 'LA', 'P'):
-                bg = Image.new('RGB', img.size, (255, 255, 255))
-                src = img.convert('RGBA') if img.mode == 'P' else img
-                if src.mode in ('RGBA', 'LA'):
-                    bg.paste(src, mask=src.split()[-1])
-                else:
-                    bg.paste(src)
-                img_out = bg
-            else:
-                img_out = img.convert('RGB')
-            img_out.save(output, 'JPEG', quality=quality, optimize=True, progressive=True)
-        else:
-            # PNG — lossless, just maximize compression
-            img.save(output, 'PNG', optimize=True, compress_level=9)
-
-        data = output.getvalue()
-        return data, len(data)
-
-    def _get_dimensions(self, image_data: bytes) -> Tuple[int, int]:
-        """Return (width, height) of compressed image."""
-        img = Image.open(BytesIO(image_data))
-        return img.width, img.height
+        return results[0]
 
     def validate_total_size(self, slices: list) -> dict:
-        """Validate total email size against Klaviyo recommendations."""
         total_size = sum(s['compressed_size'] for s in slices)
         target = KLAVIYO_LIMITS['total_email_target']
-
         return {
             'total_size': total_size,
             'total_size_kb': total_size // 1024,

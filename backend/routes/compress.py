@@ -35,28 +35,38 @@ def compress():
 
     target_kb = int(settings.get('target_size_kb', 100))
     max_kb = int(settings.get('max_size_kb', 200))
+    quality = int(settings.get('quality', 82))
+    fmt = str(settings.get('format', 'auto'))
     target_bytes = target_kb * 1024
     max_bytes = max_kb * 1024
 
-    compressed_results = []
-    recommendations = []
-
+    # Validate all base64 before starting compression
+    slice_inputs = []
     for slice_item in slices:
         slice_id = slice_item.get('id', '')
         slice_name = slice_item.get('name', 'slice')
         image_b64 = slice_item.get('image_base64', '')
-
         try:
-            image_bytes = base64.b64decode(image_b64)
+            base64.b64decode(image_b64)
         except Exception:
             return jsonify({'error': f'Invalid base64 for slice "{slice_name}"'}), 400
+        slice_inputs.append({'id': slice_id, 'name': slice_name, 'image_base64': image_b64})
 
-        result = squoosh_service.compress_image(
-            image_bytes=image_bytes,
-            filename=f"{slice_name}.png",
-            target_size=target_bytes,
-            max_size=max_bytes
-        )
+    # Compress all slices in one subprocess call
+    results = squoosh_service.compress_batch(
+        slices=slice_inputs,
+        target_size=target_bytes,
+        max_size=max_bytes,
+        quality=quality,
+        format=fmt
+    )
+
+    compressed_results = []
+    recommendations = []
+
+    for i, result in enumerate(results):
+        slice_id = slice_inputs[i]['id']
+        slice_name = slice_inputs[i]['name']
 
         # Store compressed image and get temp URL
         temp_url = storage.store(result.data, slice_id, result.format)

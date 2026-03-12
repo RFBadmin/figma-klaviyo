@@ -125,6 +125,8 @@ export type PluginMessage =
   | { type: 'EXPORT_COMPLETE'; data: SliceExport[] }
   | { type: 'FRAME_EXPORTED'; data: string }
   | { type: 'FRAME_LAYOUT'; bands: LayoutBand[]; frameHeight: number }
+  | { type: 'FIGMA_SLICES_LOADED'; slices: Array<{ name: string; y_start: number; y_end: number; imageBase64: string }> }
+  | { type: 'SLICE_NODES_CREATED'; slices: Array<{ name: string; y_start: number; y_end: number; imageBase64: string }> }
   | { type: 'ERROR'; message: string };
 
 export type UIMessage =
@@ -139,4 +141,6 @@ export type UIMessage =
   | { type: 'SAVE_KLAVIYO_KEY'; key: string }
   | { type: 'GET_KLAVIYO_KEY' }
   | { type: 'GET_USER_INFO' }
+  | { type: 'GET_FIGMA_SLICES'; frameId: string }
+  | { type: 'CREATE_SLICE_NODES'; frameId: string; slices: Array<{ name: string; y_start: number; y_end: number }> }
   | { type: 'CLOSE_PLUGIN' };

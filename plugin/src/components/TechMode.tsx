@@ -264,7 +264,7 @@ export function TechMode({ frame }: Props) {
                   <iframe
                     srcDoc={previewHtml}
                     style={{ width: '100%', height: 300, border: '1px solid #ccc' }}
-                    sandbox="allow-same-origin"
+                    sandbox="allow-same-origin allow-scripts"
                   />
                 </div>
               )}

@@ -118,8 +118,10 @@ def push():
 
 
 def _get_slice_image(slice_item: dict) -> bytes | None:
-    """Retrieve image bytes from temp storage or base64."""
-    temp_url = slice_item.get('temp_url', '')
+    """Retrieve image bytes from temp storage or base64.
+    Slices saved to Figma metadata use 'compressed_url'; raw compress responses use 'temp_url'.
+    """
+    temp_url = slice_item.get('compressed_url') or slice_item.get('temp_url', '')
     if temp_url:
         stored = storage.retrieve_by_url(temp_url)
         if stored:

@@ -7,11 +7,12 @@ interface Props {
   frameHeight: number;
   imageBase64?: string | null;
   onSlicesChange: (slices: Slice[]) => void;
+  onReanalyze: () => void;
 }
 
 const PREVIEW_WIDTH = 280;
 
-export function SlicePreview({ slices, frameHeight, imageBase64, onSlicesChange }: Props) {
+export function SlicePreview({ slices, frameHeight, imageBase64, onSlicesChange, onReanalyze }: Props) {
   const [dragging, setDragging] = useState<{ index: number; startY: number; startEnd: number } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -94,10 +95,6 @@ export function SlicePreview({ slices, frameHeight, imageBase64, onSlicesChange 
     setEditingId(null);
   }, [slices, onSlicesChange]);
 
-  const handleReanalyze = useCallback(() => {
-    // Signal parent to re-run Claude analysis
-    window.dispatchEvent(new CustomEvent('reanalyze'));
-  }, []);
 
   return (
     <div class="slice-preview">
@@ -182,8 +179,8 @@ export function SlicePreview({ slices, frameHeight, imageBase64, onSlicesChange 
 
       <div class="slice-hint">Click + on any slice to split it • Drag blue handles to adjust • Double-click label to rename</div>
       <div class="preview-actions">
-        <button onClick={handleReanalyze}>↻ Re-analyze</button>
-        <button onClick={() => window.dispatchEvent(new CustomEvent('resetSlices'))}>Reset</button>
+        <button onClick={onReanalyze}>↻ Re-analyze</button>
+        <button onClick={onReanalyze}>Reset</button>
       </div>
     </div>
   );

@@ -19,7 +19,7 @@ class TempStorage:
 
     def store(self, data: bytes, slice_id: str, fmt: str) -> str:
         """Save image bytes and return a temp URL."""
-        ext = 'jpg' if 'jpeg' in fmt or 'jpg' in fmt else 'png'
+        ext = 'jpg' if 'jpeg' in fmt or 'jpg' in fmt else ('webp' if 'webp' in fmt else 'png')
         filename = f"{slice_id}_{int(time.time())}.{ext}"
         filepath = os.path.join(TEMP_DIR, filename)
 
