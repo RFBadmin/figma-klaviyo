@@ -648,7 +648,7 @@
       if (slice.y_end - slice.y_start < 40) return;
       const midY = Math.round((slice.y_start + slice.y_end) / 2);
       const newSlice = {
-        id: `slice_${Date.now()}`,
+        id: `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`,
         name: `section_${slices.length + 1}`,
         y_start: midY,
         y_end: slice.y_end,
@@ -685,7 +685,7 @@
         ] }),
         /* @__PURE__ */ u3("span", { children: [
           "Est. Size: ~",
-          estimateSize(slices),
+          estimateSize(slices, frameHeight),
           " KB"
         ] })
       ] }),
@@ -799,8 +799,11 @@
       ] })
     ] });
   }
-  function estimateSize(slices) {
-    return slices.length * 90;
+  function estimateSize(slices, frameHeight) {
+    if (frameHeight <= 0) return slices.length * 90;
+    const KB_PER_PX = 180 / frameHeight;
+    const total = slices.reduce((sum, s3) => sum + (s3.y_end - s3.y_start) * KB_PER_PX, 0);
+    return Math.round(total);
   }
 
   // src/components/DesignerMode.tsx
@@ -869,11 +872,13 @@
     const state = frame ? (_c = frameStates[frame.id]) != null ? _c : defaultState() : defaultState();
     y2(() => {
       if (!frame || state.step !== "preview" || state.imageBase64 !== null) return;
+      if (state.figmaSliceImages !== null) return;
       exportFullFrame(frame.id).then((base64) => {
         patchState(frame.id, { imageBase64: base64 });
-      }).catch(() => {
+      }).catch((err) => {
+        patchState(frame.id, { error: `Failed to load frame preview: ${err.message}` });
       });
-    }, [frame == null ? void 0 : frame.id, state.step, state.imageBase64]);
+    }, [frame == null ? void 0 : frame.id, state.step, state.imageBase64, state.figmaSliceImages]);
     y2(() => {
       if (!frame || !frame.hasFigmaSlices) return;
       if (frame.existingSliceData) return;
@@ -882,26 +887,34 @@
     }, [frame == null ? void 0 : frame.id, frame == null ? void 0 : frame.hasFigmaSlices]);
     const sliceFrame = q2((targetFrame, forceAI = false) => __async(null, null, function* () {
       stopRef.current = false;
-      patchState(targetFrame.id, { error: null, step: "analyzing" });
-      try {
-        const figmaSlices = forceAI ? [] : yield requestFigmaSlices(targetFrame.id);
-        if (stopRef.current) return;
+      if (!forceAI) {
+        let figmaSlices = [];
+        try {
+          figmaSlices = yield requestFigmaSlices(targetFrame.id);
+        } catch (e3) {
+        }
         if (figmaSlices.length > 0) {
-          const newSlices2 = figmaSlices.map((s3, i3) => ({
-            id: `slice_${Date.now()}_${i3}`,
+          const newSlices = figmaSlices.map((s3) => ({
+            id: generateId(),
             name: s3.name,
             y_start: s3.y_start,
             y_end: s3.y_end,
             alt_text: s3.name
           }));
+          const imgMap = /* @__PURE__ */ new Map();
+          figmaSlices.forEach((s3, i3) => imgMap.set(newSlices[i3].id, s3.imageBase64));
           patchState(targetFrame.id, {
-            slices: newSlices2,
-            figmaSliceImages: newSlices2.map((s3, i3) => ({ id: s3.id, image_base64: figmaSlices[i3].imageBase64 })),
+            slices: newSlices,
+            figmaSliceImages: imgMap,
             imageBase64: null,
             step: "preview"
           });
           return;
         }
+      }
+      patchState(targetFrame.id, { error: null, step: "analyzing" });
+      try {
+        if (stopRef.current) return;
         const [base64, bands] = yield Promise.all([
           exportFullFrame(targetFrame.id),
           requestFrameLayout(targetFrame.id)
@@ -924,8 +937,8 @@
         fetchControllerRef.current = null;
         if (!response.ok) throw new Error(`Slicing failed: ${response.statusText}`);
         const data = yield response.json();
-        const newSlices = data.slices.map((s3, i3) => ({
-          id: `slice_${Date.now()}_${i3}`,
+        const newSlices = data.slices.map((s3) => ({
+          id: generateId(),
           name: s3.name,
           y_start: s3.y_start,
           y_end: s3.y_end,
@@ -956,24 +969,28 @@
         if (!ok) return;
       }
       setBatchProgress({ current: 0, total: targets.length });
+      let lastProcessed = targets[0].id;
       for (let i3 = 0; i3 < targets.length; i3++) {
         if (stopRef.current) break;
         setBatchProgress({ current: i3, total: targets.length });
         setActiveFrameId(targets[i3].id);
         yield sliceFrame(targets[i3]);
+        lastProcessed = targets[i3].id;
       }
       setBatchProgress(null);
-      if (!stopRef.current) setActiveFrameId(targets[0].id);
+      if (!stopRef.current) setActiveFrameId(lastProcessed);
       stopRef.current = false;
-    }), [checkedIds, frames, sliceFrame]);
+    }), [checkedIds, frames, frameStates, sliceFrame]);
     const applyToFrame = q2((targetFrame, currentState) => __async(null, null, function* () {
       try {
         const exported = yield createSliceNodes(targetFrame.id, currentState.slices);
+        const imgMap = /* @__PURE__ */ new Map();
+        currentState.slices.forEach((s3, i3) => {
+          var _a2;
+          if ((_a2 = exported[i3]) == null ? void 0 : _a2.imageBase64) imgMap.set(s3.id, exported[i3].imageBase64);
+        });
         patchState(targetFrame.id, {
-          figmaSliceImages: currentState.slices.map((s3, i3) => {
-            var _a2, _b2;
-            return { id: s3.id, image_base64: (_b2 = (_a2 = exported[i3]) == null ? void 0 : _a2.imageBase64) != null ? _b2 : "" };
-          }),
+          figmaSliceImages: imgMap,
           step: "applied"
         });
       } catch (err) {
@@ -987,15 +1004,22 @@
       patchState(targetFrame.id, { error: null, step: "compressing" });
       try {
         let sliceExports;
-        if ((_a2 = currentState.figmaSliceImages) == null ? void 0 : _a2.length) {
-          sliceExports = currentState.slices.map((s3, i3) => {
-            var _a3, _b2;
-            return {
+        if ((_a2 = currentState.figmaSliceImages) == null ? void 0 : _a2.size) {
+          const allHaveImages = currentState.slices.every((s3) => currentState.figmaSliceImages.has(s3.id));
+          if (allHaveImages) {
+            sliceExports = currentState.slices.map((s3) => ({
               id: s3.id,
               name: s3.name,
-              image_base64: (_b2 = (_a3 = currentState.figmaSliceImages[i3]) == null ? void 0 : _a3.image_base64) != null ? _b2 : ""
-            };
-          });
+              image_base64: currentState.figmaSliceImages.get(s3.id)
+            }));
+          } else {
+            let base64 = currentState.imageBase64;
+            if (!base64) {
+              base64 = yield exportFullFrame(targetFrame.id);
+              patchState(targetFrame.id, { imageBase64: base64 });
+            }
+            sliceExports = yield cropSlicesFromImage(base64, currentState.slices, targetFrame.width);
+          }
         } else {
           let base64 = currentState.imageBase64;
           if (!base64) {
@@ -1131,7 +1155,8 @@
                 ] }),
                 fs.step === "saved" && /* @__PURE__ */ u3("span", { class: "frame-check-done", children: "\u2713" }),
                 (fs.step === "analyzing" || fs.step === "compressing") && /* @__PURE__ */ u3("span", { class: "frame-check-spinner" }),
-                fs.step === "preview" && /* @__PURE__ */ u3("span", { class: "frame-check-badge", children: "sliced" })
+                fs.step === "preview" && /* @__PURE__ */ u3("span", { class: "frame-check-badge", children: "sliced" }),
+                f4.hasFigmaSlices && fs.step === "select" && /* @__PURE__ */ u3("span", { class: "frame-check-badge figma-badge", title: "Has Figma Slice nodes", children: "\u2702" })
               ]
             },
             f4.id
@@ -1147,6 +1172,7 @@
         {
           frame,
           state,
+          fromFigmaSlices: state.figmaSliceImages !== null,
           onSlice: () => sliceFrame(frame),
           onReSlice: () => sliceFrame(frame, true),
           onSlicesChange: (slices) => patchState(frame.id, { slices }),
@@ -1166,7 +1192,7 @@
       )
     ] });
   }
-  function FrameWorkflow({ frame, state, onSlice, onReSlice, onSlicesChange, onApplyToFrame, onCompress, onSave, onStepChange, onErrorDismiss, onCancelSlice, compressQuality, compressMaxKb, compressFormat, onQualityChange, onMaxKbChange, onFormatChange }) {
+  function FrameWorkflow({ frame, state, fromFigmaSlices, onSlice, onReSlice, onSlicesChange, onApplyToFrame, onCompress, onSave, onStepChange, onErrorDismiss, onCancelSlice, compressQuality, compressMaxKb, compressFormat, onQualityChange, onMaxKbChange, onFormatChange }) {
     const { step, slices, imageBase64, compressResponse, error } = state;
     return /* @__PURE__ */ u3("div", { children: [
       error && /* @__PURE__ */ u3("div", { class: "error-banner", children: [
@@ -1193,6 +1219,13 @@
         /* @__PURE__ */ u3("button", { class: "btn-stop", onClick: onCancelSlice, children: "\u2715 Stop" })
       ] }),
       step === "preview" && /* @__PURE__ */ u3("div", { class: "step-panel", children: [
+        fromFigmaSlices && /* @__PURE__ */ u3("p", { class: "figma-slices-notice", children: [
+          "\u2702 Using ",
+          slices.length,
+          " Figma slice node",
+          slices.length !== 1 ? "s" : "",
+          " from this frame"
+        ] }),
         /* @__PURE__ */ u3(
           SlicePreview,
           {
@@ -1205,11 +1238,14 @@
         ),
         /* @__PURE__ */ u3("div", { class: "action-row", children: [
           /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: onReSlice, children: "\u21BB Re-slice" }),
-          /* @__PURE__ */ u3("button", { class: "btn-primary", onClick: onApplyToFrame, children: "Apply to Frame \u2192" })
+          fromFigmaSlices ? (
+            // Figma nodes already exist — skip straight to compression settings
+            /* @__PURE__ */ u3("button", { class: "btn-primary", onClick: () => onStepChange("applied"), children: "Use These Slices \u2192" })
+          ) : /* @__PURE__ */ u3("button", { class: "btn-primary", onClick: onApplyToFrame, children: "Apply to Frame \u2192" })
         ] })
       ] }),
       step === "applied" && /* @__PURE__ */ u3("div", { class: "step-panel", children: [
-        /* @__PURE__ */ u3("p", { class: "success-inline", children: "\u2713 Slice nodes created on frame in Figma" }),
+        /* @__PURE__ */ u3("p", { class: "success-inline", children: "\u2713 Slice nodes ready on frame in Figma" }),
         /* @__PURE__ */ u3("div", { class: "compress-settings", children: [
           /* @__PURE__ */ u3("div", { class: "format-row", children: [
             /* @__PURE__ */ u3("span", { class: "settings-label", children: "Format" }),
@@ -1355,40 +1391,96 @@
   function capitalize(s3) {
     return s3.charAt(0).toUpperCase() + s3.slice(1);
   }
+  function generateId() {
+    return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+  }
   function exportFullFrame(frameId) {
     return __async(this, null, function* () {
+      const reqId = generateId();
       return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          window.removeEventListener("message", handler);
+          reject(new Error("Frame export timed out \u2014 try again."));
+        }, 3e4);
         const handler = (event) => {
           var _a;
           const msg = (_a = event.data) == null ? void 0 : _a.pluginMessage;
-          if ((msg == null ? void 0 : msg.type) === "FRAME_EXPORTED") {
-            window.removeEventListener("message", handler);
-            resolve(msg.data);
-          } else if ((msg == null ? void 0 : msg.type) === "ERROR") {
-            window.removeEventListener("message", handler);
-            reject(new Error(msg.message));
-          }
+          if (!msg || msg._reqId !== reqId) return;
+          clearTimeout(timer);
+          window.removeEventListener("message", handler);
+          if (msg.type === "FRAME_EXPORTED") resolve(msg.data);
+          else if (msg.type === "ERROR") reject(new Error(msg.message));
         };
         window.addEventListener("message", handler);
-        parent.postMessage({ pluginMessage: { type: "EXPORT_FRAME", frameId } }, "*");
+        parent.postMessage({ pluginMessage: { type: "EXPORT_FRAME", frameId, _reqId: reqId } }, "*");
       });
     });
   }
   function requestFrameLayout(frameId) {
+    const reqId = generateId();
     return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        window.removeEventListener("message", handler);
+        reject(new Error("Frame layout timed out \u2014 try again."));
+      }, 3e4);
       const handler = (event) => {
         var _a;
         const msg = (_a = event.data) == null ? void 0 : _a.pluginMessage;
-        if ((msg == null ? void 0 : msg.type) === "FRAME_LAYOUT") {
-          window.removeEventListener("message", handler);
-          resolve(msg.bands);
-        } else if ((msg == null ? void 0 : msg.type) === "ERROR") {
-          window.removeEventListener("message", handler);
-          reject(new Error(msg.message));
-        }
+        if (!msg || msg._reqId !== reqId) return;
+        clearTimeout(timer);
+        window.removeEventListener("message", handler);
+        if (msg.type === "FRAME_LAYOUT") resolve(msg.bands);
+        else if (msg.type === "ERROR") reject(new Error(msg.message));
       };
       window.addEventListener("message", handler);
-      parent.postMessage({ pluginMessage: { type: "GET_FRAME_LAYOUT", frameId } }, "*");
+      parent.postMessage({ pluginMessage: { type: "GET_FRAME_LAYOUT", frameId, _reqId: reqId } }, "*");
+    });
+  }
+  function requestFigmaSlices(frameId) {
+    const reqId = generateId();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        window.removeEventListener("message", handler);
+        reject(new Error("Figma slice read timed out."));
+      }, 3e4);
+      const handler = (event) => {
+        var _a;
+        const msg = (_a = event.data) == null ? void 0 : _a.pluginMessage;
+        if (!msg || msg._reqId !== reqId) return;
+        clearTimeout(timer);
+        window.removeEventListener("message", handler);
+        if (msg.type === "FIGMA_SLICES_LOADED") resolve(msg.slices);
+        else if (msg.type === "ERROR") reject(new Error(msg.message));
+      };
+      window.addEventListener("message", handler);
+      parent.postMessage({ pluginMessage: { type: "GET_FIGMA_SLICES", frameId, _reqId: reqId } }, "*");
+    });
+  }
+  function createSliceNodes(frameId, slices) {
+    const reqId = generateId();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        window.removeEventListener("message", handler);
+        reject(new Error("Creating slice nodes timed out \u2014 try again."));
+      }, 6e4);
+      const handler = (event) => {
+        var _a;
+        const msg = (_a = event.data) == null ? void 0 : _a.pluginMessage;
+        if (!msg || msg._reqId !== reqId) return;
+        clearTimeout(timer);
+        window.removeEventListener("message", handler);
+        if (msg.type === "SLICE_NODES_CREATED") resolve(msg.slices);
+        else if (msg.type === "ERROR") reject(new Error(msg.message));
+      };
+      window.addEventListener("message", handler);
+      parent.postMessage({
+        pluginMessage: {
+          type: "CREATE_SLICE_NODES",
+          frameId,
+          slices: slices.map((s3) => ({ name: s3.name, y_start: s3.y_start, y_end: s3.y_end })),
+          _reqId: reqId
+        }
+      }, "*");
     });
   }
   function cropSlicesFromImage(imageBase64, slices, frameWidth) {
@@ -1431,55 +1523,16 @@
       });
     });
   }
-  function requestFigmaSlices(frameId) {
-    return new Promise((resolve, reject) => {
-      const handler = (event) => {
-        var _a;
-        const msg = (_a = event.data) == null ? void 0 : _a.pluginMessage;
-        if ((msg == null ? void 0 : msg.type) === "FIGMA_SLICES_LOADED") {
-          window.removeEventListener("message", handler);
-          resolve(msg.slices);
-        } else if ((msg == null ? void 0 : msg.type) === "ERROR") {
-          window.removeEventListener("message", handler);
-          reject(new Error(msg.message));
-        }
-      };
-      window.addEventListener("message", handler);
-      parent.postMessage({ pluginMessage: { type: "GET_FIGMA_SLICES", frameId } }, "*");
-    });
-  }
-  function createSliceNodes(frameId, slices) {
-    return new Promise((resolve, reject) => {
-      const handler = (event) => {
-        var _a;
-        const msg = (_a = event.data) == null ? void 0 : _a.pluginMessage;
-        if ((msg == null ? void 0 : msg.type) === "SLICE_NODES_CREATED") {
-          window.removeEventListener("message", handler);
-          resolve(msg.slices);
-        } else if ((msg == null ? void 0 : msg.type) === "ERROR") {
-          window.removeEventListener("message", handler);
-          reject(new Error(msg.message));
-        }
-      };
-      window.addEventListener("message", handler);
-      parent.postMessage({
-        pluginMessage: {
-          type: "CREATE_SLICE_NODES",
-          frameId,
-          slices: slices.map((s3) => ({ name: s3.name, y_start: s3.y_start, y_end: s3.y_end }))
-        }
-      }, "*");
-    });
-  }
 
   // src/components/KlaviyoConfig.tsx
-  function KlaviyoConfig({ apiKey, backendUrl, onChange }) {
+  function KlaviyoConfig({ apiKey, backendUrl, defaultTemplateName = "", onChange }) {
     const [lists, setLists] = d2([]);
     const [loading, setLoading] = d2(false);
+    const [listError, setListError] = d2(null);
     const [config, setConfig] = d2({
       mode: "template",
-      templateName: "",
-      campaignName: "",
+      templateName: defaultTemplateName,
+      campaignName: defaultTemplateName,
       subject: "",
       previewText: "",
       fromEmail: "",
@@ -1487,6 +1540,13 @@
       listId: "",
       sendTime: void 0
     });
+    y2(() => {
+      if (!defaultTemplateName) return;
+      setConfig((prev) => __spreadProps(__spreadValues({}, prev), {
+        templateName: prev.templateName || defaultTemplateName,
+        campaignName: prev.campaignName || defaultTemplateName
+      }));
+    }, [defaultTemplateName]);
     y2(() => {
       fetchLists();
     }, [apiKey]);
@@ -1496,17 +1556,23 @@
     function fetchLists() {
       return __async(this, null, function* () {
         setLoading(true);
+        setListError(null);
         try {
           const res = yield fetch(`${backendUrl}/api/klaviyo/lists`, {
             headers: { "X-Klaviyo-Key": apiKey }
           });
-          if (res.ok) {
-            const data = yield res.json();
-            setLists(data.lists);
-            if (data.lists.length > 0) {
-              update("listId", data.lists[0].id);
-            }
+          if (!res.ok) {
+            const err = yield res.json().catch(() => ({}));
+            setListError(err.error || `Failed to load lists (${res.status})`);
+            return;
           }
+          const data = yield res.json();
+          setLists(data.lists);
+          if (data.lists.length > 0) {
+            update("listId", data.lists[0].id);
+          }
+        } catch (e3) {
+          setListError("Could not reach backend \u2014 check your connection.");
         } finally {
           setLoading(false);
         }
@@ -1620,7 +1686,10 @@
         ] }),
         /* @__PURE__ */ u3("div", { class: "form-field", children: [
           /* @__PURE__ */ u3("label", { children: "Send To List" }),
-          loading ? /* @__PURE__ */ u3("p", { style: { fontSize: 12, color: "#666" }, children: "Loading lists\u2026" }) : /* @__PURE__ */ u3(
+          loading ? /* @__PURE__ */ u3("p", { style: { fontSize: 12, color: "#666" }, children: "Loading lists\u2026" }) : listError ? /* @__PURE__ */ u3("p", { style: { fontSize: 12, color: "#e74c3c" }, children: [
+            "\u26A0 ",
+            listError
+          ] }) : /* @__PURE__ */ u3(
             "select",
             {
               value: config.listId,
@@ -1640,6 +1709,9 @@
 
   // src/components/TechMode.tsx
   var BACKEND_URL2 = "https://figma-klaviyo-production.up.railway.app";
+  function generateId2() {
+    return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+  }
   function TechMode({ frames }) {
     const [step, setStep] = d2("key_setup");
     const [klaviyoKey, setKlaviyoKey] = d2(null);
@@ -1649,8 +1721,9 @@
     const [editedSlices, setEditedSlices] = d2([]);
     const [klaviyoConfig, setKlaviyoConfig] = d2(null);
     const [error, setError] = d2(null);
-    const [pushResult, setPushResult] = d2(null);
+    const [pushResults, setPushResults] = d2([]);
     const [previewHtml, setPreviewHtml] = d2(null);
+    const [pushingFrame, setPushingFrame] = d2(null);
     const readyFrames = frames.filter((f4) => f4.existingSliceData);
     y2(() => {
       parent.postMessage({ pluginMessage: { type: "GET_KLAVIYO_KEY" } }, "*");
@@ -1718,42 +1791,54 @@
     const handlePush = q2(() => __async(null, null, function* () {
       if (!klaviyoKey || !klaviyoConfig) return;
       setError(null);
+      setPushResults([]);
       setStep("pushing");
+      const results = [];
       try {
-        const imageMap = /* @__PURE__ */ new Map();
         for (const f4 of readyFrames) {
-          const frameMap = yield fetchFigmaSliceImages(f4.id);
-          for (const [name, b64] of frameMap) {
-            imageMap.set(`${f4.id}::${name}`, b64);
-          }
-        }
-        const slicesForPush = editedSlices.map((s3) => {
-          const freshImage = imageMap.get(`${s3._frameId}::${s3.name}`);
-          return freshImage ? __spreadProps(__spreadValues({}, s3), { image_base64: freshImage }) : s3;
-        });
-        const res = yield fetch(`${BACKEND_URL2}/api/klaviyo/push`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Klaviyo-Key": klaviyoKey
-          },
-          body: JSON.stringify({
-            slices: slicesForPush,
-            config: klaviyoConfig
-          })
-        });
-        if (!res.ok) {
-          const errData = yield res.json().catch(() => ({}));
-          const detail = errData.detail ? `
+          setPushingFrame(f4.name);
+          const imageMap = yield fetchFigmaSliceImages(f4.id);
+          const frameSlices = editedSlices.filter((s3) => s3._frameId === f4.id);
+          const slicesForPush = frameSlices.map((s3) => {
+            const freshImage = imageMap.get(s3.name);
+            return freshImage ? __spreadProps(__spreadValues({}, s3), { image_base64: freshImage }) : s3;
+          });
+          const isMultiFrame = readyFrames.length > 1;
+          const frameConfig = __spreadProps(__spreadValues({}, klaviyoConfig), {
+            templateName: isMultiFrame ? `${klaviyoConfig.templateName} \u2014 ${f4.name}` : klaviyoConfig.templateName,
+            campaignName: isMultiFrame ? `${klaviyoConfig.campaignName} \u2014 ${f4.name}` : klaviyoConfig.campaignName
+          });
+          const res = yield fetch(`${BACKEND_URL2}/api/klaviyo/push`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Klaviyo-Key": klaviyoKey
+            },
+            body: JSON.stringify({
+              slices: slicesForPush,
+              config: frameConfig
+            })
+          });
+          if (!res.ok) {
+            const errData = yield res.json().catch(() => ({}));
+            const detail = errData.detail ? `
 ${JSON.stringify(errData.detail, null, 2)}` : "";
-          throw new Error((errData.error || `Push failed: ${res.statusText}`) + detail);
+            throw new Error(`[${f4.name}] ${errData.error || `Push failed: ${res.statusText}`}${detail}`);
+          }
+          const data = yield res.json();
+          results.push({
+            frameName: f4.name,
+            templateUrl: data.templateUrl,
+            campaignUrl: data.campaignUrl
+          });
         }
-        const data = yield res.json();
-        setPushResult(data);
+        setPushResults(results);
+        setPushingFrame(null);
         setStep("done");
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setError(msg);
+        setPushingFrame(null);
         setStep("configure");
       }
     }), [klaviyoKey, editedSlices, klaviyoConfig, readyFrames]);
@@ -1814,7 +1899,7 @@ ${JSON.stringify(errData.detail, null, 2)}` : "";
           /* @__PURE__ */ u3("div", { class: "design-summary", children: [
             /* @__PURE__ */ u3("span", { children: "\u{1F4E7}" }),
             /* @__PURE__ */ u3("div", { children: [
-              /* @__PURE__ */ u3("strong", { children: readyFrames.length === 1 ? readyFrames[0].name : `${readyFrames.length} frames` }),
+              /* @__PURE__ */ u3("strong", { children: readyFrames.length === 1 ? readyFrames[0].name : `${readyFrames.length} frames \u2192 ${readyFrames.length} templates` }),
               /* @__PURE__ */ u3("span", { children: [
                 editedSlices.length,
                 " slices total"
@@ -1873,11 +1958,19 @@ ${JSON.stringify(errData.detail, null, 2)}` : "";
             })() })
           ] }),
           /* @__PURE__ */ u3("div", { class: "section-title", children: "Push Destination" }),
+          readyFrames.length > 1 && /* @__PURE__ */ u3("p", { class: "multi-frame-note", children: [
+            "\u2139 ",
+            readyFrames.length,
+            " frames selected \u2014 each will create a separate template",
+            (klaviyoConfig == null ? void 0 : klaviyoConfig.mode) === "campaign" ? " and campaign" : "",
+            "."
+          ] }),
           /* @__PURE__ */ u3(
             KlaviyoConfig,
             {
               apiKey: klaviyoKey,
               backendUrl: BACKEND_URL2,
+              defaultTemplateName: readyFrames.length === 1 ? readyFrames[0].name : "",
               onChange: setKlaviyoConfig
             }
           ),
@@ -1889,7 +1982,7 @@ ${JSON.stringify(errData.detail, null, 2)}` : "";
                 class: "btn-primary",
                 disabled: !(klaviyoConfig == null ? void 0 : klaviyoConfig.templateName),
                 onClick: handlePush,
-                children: "Push to Klaviyo \u2192"
+                children: readyFrames.length > 1 ? `Push ${readyFrames.length} Frames \u2192` : "Push to Klaviyo \u2192"
               }
             )
           ] }),
@@ -1911,37 +2004,63 @@ ${JSON.stringify(errData.detail, null, 2)}` : "";
       ] }),
       step === "pushing" && /* @__PURE__ */ u3("div", { class: "step-panel loading", children: [
         /* @__PURE__ */ u3("div", { class: "spinner" }),
-        /* @__PURE__ */ u3("p", { children: "Uploading to Klaviyo\u2026" })
+        /* @__PURE__ */ u3("p", { children: [
+          "Uploading to Klaviyo\u2026",
+          pushingFrame ? ` (${pushingFrame})` : ""
+        ] }),
+        pushResults.length > 0 && /* @__PURE__ */ u3("p", { class: "push-progress", children: [
+          pushResults.length,
+          " of ",
+          readyFrames.length,
+          " done"
+        ] })
       ] }),
-      step === "done" && pushResult && /* @__PURE__ */ u3("div", { class: "step-panel success", children: [
-        /* @__PURE__ */ u3("p", { children: "\u2713 Successfully pushed to Klaviyo!" }),
-        pushResult.templateUrl && /* @__PURE__ */ u3("a", { href: pushResult.templateUrl, target: "_blank", rel: "noreferrer", children: "View Template \u2192" }),
-        pushResult.campaignUrl && /* @__PURE__ */ u3("a", { href: pushResult.campaignUrl, target: "_blank", rel: "noreferrer", children: "View Campaign \u2192" }),
-        /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: () => setStep("configure"), children: "Push Another" })
+      step === "done" && pushResults.length > 0 && /* @__PURE__ */ u3("div", { class: "step-panel success", children: [
+        /* @__PURE__ */ u3("p", { children: [
+          "\u2713 Successfully pushed ",
+          pushResults.length,
+          " frame",
+          pushResults.length !== 1 ? "s" : "",
+          " to Klaviyo!"
+        ] }),
+        /* @__PURE__ */ u3("div", { class: "push-results-list", children: pushResults.map((r3, i3) => /* @__PURE__ */ u3("div", { class: "push-result-item", children: [
+          pushResults.length > 1 && /* @__PURE__ */ u3("strong", { class: "result-frame-name", children: [
+            "\u{1F4C4} ",
+            r3.frameName
+          ] }),
+          /* @__PURE__ */ u3("div", { class: "result-links", children: [
+            r3.templateUrl && /* @__PURE__ */ u3("a", { href: r3.templateUrl, target: "_blank", rel: "noreferrer", children: "View Template \u2192" }),
+            r3.campaignUrl && /* @__PURE__ */ u3("a", { href: r3.campaignUrl, target: "_blank", rel: "noreferrer", children: "View Campaign \u2192" })
+          ] })
+        ] }, i3)) }),
+        /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: () => setStep("configure"), children: "Push Again" })
       ] })
     ] });
   }
   function fetchFigmaSliceImages(frameId) {
+    const reqId = generateId2();
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         window.removeEventListener("message", handler);
+        console.warn(`fetchFigmaSliceImages: timed out for frame ${frameId} \u2014 using cached data`);
         resolve(/* @__PURE__ */ new Map());
       }, 15e3);
       const handler = (event) => {
         var _a;
         const msg = (_a = event.data) == null ? void 0 : _a.pluginMessage;
-        if ((msg == null ? void 0 : msg.type) === "FIGMA_SLICES_LOADED") {
-          clearTimeout(timer);
-          window.removeEventListener("message", handler);
-          const map = /* @__PURE__ */ new Map();
+        if (!msg || msg._reqId !== reqId) return;
+        clearTimeout(timer);
+        window.removeEventListener("message", handler);
+        const map = /* @__PURE__ */ new Map();
+        if (msg.type === "FIGMA_SLICES_LOADED") {
           for (const s3 of msg.slices) {
             map.set(s3.name, s3.imageBase64);
           }
-          resolve(map);
         }
+        resolve(map);
       };
       window.addEventListener("message", handler);
-      parent.postMessage({ pluginMessage: { type: "GET_FIGMA_SLICES", frameId } }, "*");
+      parent.postMessage({ pluginMessage: { type: "GET_FIGMA_SLICES", frameId, _reqId: reqId } }, "*");
     });
   }
 
@@ -1951,7 +2070,7 @@ ${JSON.stringify(errData.detail, null, 2)}` : "";
     const [frames, setFrames] = d2([]);
     const [noFrameWarning, setNoFrameWarning] = d2(false);
     y2(() => {
-      window.onmessage = (event) => {
+      const handler = (event) => {
         var _a;
         const msg = (_a = event.data) == null ? void 0 : _a.pluginMessage;
         if (!msg) return;
@@ -1973,7 +2092,9 @@ ${JSON.stringify(errData.detail, null, 2)}` : "";
             break;
         }
       };
+      window.addEventListener("message", handler);
       parent.postMessage({ pluginMessage: { type: "GET_ALL_FRAMES" } }, "*");
+      return () => window.removeEventListener("message", handler);
     }, []);
     return /* @__PURE__ */ u3("div", { class: "plugin-root", children: [
       /* @__PURE__ */ u3("header", { class: "plugin-header", children: [

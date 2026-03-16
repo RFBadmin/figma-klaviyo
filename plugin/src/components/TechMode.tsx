@@ -14,8 +14,19 @@ interface TaggedSlice extends Slice {
   _frameName: string;
 }
 
+interface FramePushResult {
+  frameName: string;
+  templateUrl?: string;
+  campaignUrl?: string;
+}
+
 interface Props {
   frames: FrameInfo[];
+}
+
+/** Generate a collision-resistant ID for message correlation. */
+function generateId(): string {
+  return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
 export function TechMode({ frames }: Props) {
@@ -27,8 +38,9 @@ export function TechMode({ frames }: Props) {
   const [editedSlices, setEditedSlices] = useState<TaggedSlice[]>([]);
   const [klaviyoConfig, setKlaviyoConfig] = useState<KlaviyoCampaignConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [pushResult, setPushResult] = useState<{ templateUrl?: string; campaignUrl?: string } | null>(null);
+  const [pushResults, setPushResults] = useState<FramePushResult[]>([]);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [pushingFrame, setPushingFrame] = useState<string | null>(null);
 
   // Frames that have been sliced and saved by the designer
   const readyFrames = frames.filter(f => f.existingSliceData);
@@ -106,53 +118,79 @@ export function TechMode({ frames }: Props) {
     }
   }, [editedSlices]);
 
+  /**
+   * Push each ready frame as its own separate template + campaign.
+   * 2 frames → 2 templates, 5 frames → 5 templates, etc.
+   */
   const handlePush = useCallback(async () => {
     if (!klaviyoKey || !klaviyoConfig) return;
     setError(null);
+    setPushResults([]);
     setStep('pushing');
 
+    const results: FramePushResult[] = [];
+
     try {
-      // Fetch fresh images from Figma slice nodes for all ready frames
-      const imageMap = new Map<string, string>(); // frameName:sliceName → base64
       for (const f of readyFrames) {
-        const frameMap = await fetchFigmaSliceImages(f.id);
-        for (const [name, b64] of frameMap) {
-          imageMap.set(`${f.id}::${name}`, b64);
+        setPushingFrame(f.name);
+
+        // Fetch fresh images from Figma slice nodes for this frame
+        const imageMap = await fetchFigmaSliceImages(f.id);
+
+        // Get slices that belong to this frame
+        const frameSlices = editedSlices.filter(s => s._frameId === f.id);
+
+        // Enrich with fresh images where available
+        const slicesForPush = frameSlices.map(s => {
+          const freshImage = imageMap.get(s.name);
+          return freshImage ? { ...s, image_base64: freshImage } : s;
+        });
+
+        // When multiple frames are present, suffix each name with the frame name
+        const isMultiFrame = readyFrames.length > 1;
+        const frameConfig: KlaviyoCampaignConfig = {
+          ...klaviyoConfig,
+          templateName: isMultiFrame
+            ? `${klaviyoConfig.templateName} — ${f.name}`
+            : klaviyoConfig.templateName,
+          campaignName: isMultiFrame
+            ? `${klaviyoConfig.campaignName} — ${f.name}`
+            : klaviyoConfig.campaignName
+        };
+
+        const res = await fetch(`${BACKEND_URL}/api/klaviyo/push`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Klaviyo-Key': klaviyoKey
+          },
+          body: JSON.stringify({
+            slices: slicesForPush,
+            config: frameConfig
+          })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({})) as { error?: string; detail?: unknown };
+          const detail = errData.detail ? `\n${JSON.stringify(errData.detail, null, 2)}` : '';
+          throw new Error(`[${f.name}] ${errData.error || `Push failed: ${res.statusText}`}${detail}`);
         }
+
+        const data = await res.json();
+        results.push({
+          frameName: f.name,
+          templateUrl: data.templateUrl,
+          campaignUrl: data.campaignUrl
+        });
       }
 
-      // Build combined slices list, enriching with fresh images where available
-      const slicesForPush = editedSlices.map(s => {
-        const freshImage = imageMap.get(`${s._frameId}::${s.name}`);
-        return freshImage
-          ? { ...s, image_base64: freshImage }
-          : s;
-      });
-
-      const res = await fetch(`${BACKEND_URL}/api/klaviyo/push`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Klaviyo-Key': klaviyoKey
-        },
-        body: JSON.stringify({
-          slices: slicesForPush,
-          config: klaviyoConfig
-        })
-      });
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({})) as { error?: string; detail?: unknown };
-        const detail = errData.detail ? `\n${JSON.stringify(errData.detail, null, 2)}` : '';
-        throw new Error((errData.error || `Push failed: ${res.statusText}`) + detail);
-      }
-
-      const data = await res.json();
-      setPushResult(data);
+      setPushResults(results);
+      setPushingFrame(null);
       setStep('done');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
+      setPushingFrame(null);
       setStep('configure');
     }
   }, [klaviyoKey, editedSlices, klaviyoConfig, readyFrames]);
@@ -225,7 +263,11 @@ export function TechMode({ frames }: Props) {
               <div class="design-summary">
                 <span>📧</span>
                 <div>
-                  <strong>{readyFrames.length === 1 ? readyFrames[0].name : `${readyFrames.length} frames`}</strong>
+                  <strong>
+                    {readyFrames.length === 1
+                      ? readyFrames[0].name
+                      : `${readyFrames.length} frames → ${readyFrames.length} templates`}
+                  </strong>
                   <span>{editedSlices.length} slices total</span>
                 </div>
               </div>
@@ -278,9 +320,16 @@ export function TechMode({ frames }: Props) {
               </table>
 
               <div class="section-title">Push Destination</div>
+              {readyFrames.length > 1 && (
+                <p class="multi-frame-note">
+                  ℹ {readyFrames.length} frames selected — each will create a separate template
+                  {klaviyoConfig?.mode === 'campaign' ? ' and campaign' : ''}.
+                </p>
+              )}
               <KlaviyoConfig
                 apiKey={klaviyoKey!}
                 backendUrl={BACKEND_URL}
+                defaultTemplateName={readyFrames.length === 1 ? readyFrames[0].name : ''}
                 onChange={setKlaviyoConfig}
               />
 
@@ -291,7 +340,9 @@ export function TechMode({ frames }: Props) {
                   disabled={!klaviyoConfig?.templateName}
                   onClick={handlePush}
                 >
-                  Push to Klaviyo →
+                  {readyFrames.length > 1
+                    ? `Push ${readyFrames.length} Frames →`
+                    : 'Push to Klaviyo →'}
                 </button>
               </div>
 
@@ -316,56 +367,67 @@ export function TechMode({ frames }: Props) {
       {step === 'pushing' && (
         <div class="step-panel loading">
           <div class="spinner" />
-          <p>Uploading to Klaviyo…</p>
+          <p>Uploading to Klaviyo…{pushingFrame ? ` (${pushingFrame})` : ''}</p>
+          {pushResults.length > 0 && (
+            <p class="push-progress">{pushResults.length} of {readyFrames.length} done</p>
+          )}
         </div>
       )}
 
-      {step === 'done' && pushResult && (
+      {step === 'done' && pushResults.length > 0 && (
         <div class="step-panel success">
-          <p>✓ Successfully pushed to Klaviyo!</p>
-          {pushResult.templateUrl && (
-            <a href={pushResult.templateUrl} target="_blank" rel="noreferrer">View Template →</a>
-          )}
-          {pushResult.campaignUrl && (
-            <a href={pushResult.campaignUrl} target="_blank" rel="noreferrer">View Campaign →</a>
-          )}
-          <button class="btn-secondary" onClick={() => setStep('configure')}>Push Another</button>
+          <p>✓ Successfully pushed {pushResults.length} frame{pushResults.length !== 1 ? 's' : ''} to Klaviyo!</p>
+          <div class="push-results-list">
+            {pushResults.map((r, i) => (
+              <div key={i} class="push-result-item">
+                {pushResults.length > 1 && <strong class="result-frame-name">📄 {r.frameName}</strong>}
+                <div class="result-links">
+                  {r.templateUrl && (
+                    <a href={r.templateUrl} target="_blank" rel="noreferrer">View Template →</a>
+                  )}
+                  {r.campaignUrl && (
+                    <a href={r.campaignUrl} target="_blank" rel="noreferrer">View Campaign →</a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          <button class="btn-secondary" onClick={() => setStep('configure')}>Push Again</button>
         </div>
       )}
     </div>
   );
 }
 
-function formatDate(iso: string): string {
-  if (!iso) return '';
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
 /**
  * Ask Figma to export the slice nodes on a frame and return a name→base64 map.
- * Falls back to empty map if there are no slice nodes or the request times out.
+ * Uses correlation ID to avoid race conditions.
+ * Warns (but doesn't throw) if there are no slice nodes or the request times out.
  */
 function fetchFigmaSliceImages(frameId: string): Promise<Map<string, string>> {
+  const reqId = generateId();
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       window.removeEventListener('message', handler);
+      console.warn(`fetchFigmaSliceImages: timed out for frame ${frameId} — using cached data`);
       resolve(new Map());
     }, 15000);
 
     const handler = (event: MessageEvent) => {
       const msg = event.data?.pluginMessage;
-      if (msg?.type === 'FIGMA_SLICES_LOADED') {
-        clearTimeout(timer);
-        window.removeEventListener('message', handler);
-        const map = new Map<string, string>();
+      if (!msg || msg._reqId !== reqId) return;
+      clearTimeout(timer);
+      window.removeEventListener('message', handler);
+      const map = new Map<string, string>();
+      if (msg.type === 'FIGMA_SLICES_LOADED') {
         for (const s of msg.slices as Array<{ name: string; imageBase64: string }>) {
           map.set(s.name, s.imageBase64);
         }
-        resolve(map);
       }
+      resolve(map);
     };
 
     window.addEventListener('message', handler);
-    parent.postMessage({ pluginMessage: { type: 'GET_FIGMA_SLICES', frameId } }, '*');
+    parent.postMessage({ pluginMessage: { type: 'GET_FIGMA_SLICES', frameId, _reqId: reqId } }, '*');
   });
 }

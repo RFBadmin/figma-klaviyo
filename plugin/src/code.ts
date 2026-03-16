@@ -53,6 +53,10 @@ figma.on('selectionchange', () => {
 // ─── Message Handler ──────────────────────────────────────────────────────────
 
 figma.ui.onmessage = async (msg: UIMessage) => {
+  // Correlation ID — echoed back in every response so the UI can match
+  // request→response pairs and avoid race conditions during batch operations.
+  const reqId = (msg as any)._reqId as string | undefined;
+
   try {
     switch (msg.type) {
 
@@ -66,14 +70,14 @@ figma.ui.onmessage = async (msg: UIMessage) => {
         break;
       }
 
-case 'EXPORT_FRAME': {
+      case 'EXPORT_FRAME': {
         const frameNode = figma.getNodeById(msg.frameId) as FrameNode;
         if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
         const bytes = await frameNode.exportAsync({
           format: 'PNG',
           constraint: { type: 'SCALE', value: 2 }
         });
-        figma.ui.postMessage({ type: 'FRAME_EXPORTED', data: uint8ArrayToBase64(bytes) });
+        figma.ui.postMessage({ type: 'FRAME_EXPORTED', data: uint8ArrayToBase64(bytes), _reqId: reqId });
         break;
       }
 
@@ -82,7 +86,7 @@ case 'EXPORT_FRAME': {
         if (!layoutFrame) throw new Error(`Frame ${msg.frameId} not found`);
         const frameAbsY = layoutFrame.absoluteBoundingBox?.y ?? 0;
         const bands = computeSliceBands(layoutFrame, frameAbsY, layoutFrame.height);
-        figma.ui.postMessage({ type: 'FRAME_LAYOUT', bands, frameHeight: layoutFrame.height });
+        figma.ui.postMessage({ type: 'FRAME_LAYOUT', bands, frameHeight: layoutFrame.height, _reqId: reqId });
         break;
       }
 
@@ -91,11 +95,11 @@ case 'EXPORT_FRAME': {
         if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
 
         const frameAbsY = frameNode.absoluteBoundingBox?.y ?? 0;
-        const sliceNodes = (frameNode.children as SceneNode[])
-          .filter(n => n.type === 'SLICE' && n.visible) as SliceNode[];
+        // Search recursively — slice nodes may be inside groups
+        const sliceNodes = findSliceNodesRecursive(frameNode);
 
         if (sliceNodes.length === 0) {
-          figma.ui.postMessage({ type: 'FIGMA_SLICES_LOADED', slices: [] });
+          figma.ui.postMessage({ type: 'FIGMA_SLICES_LOADED', slices: [], _reqId: reqId });
           break;
         }
 
@@ -112,7 +116,7 @@ case 'EXPORT_FRAME': {
         }
 
         figmaSlices.sort((a, b) => a.y_start - b.y_start);
-        figma.ui.postMessage({ type: 'FIGMA_SLICES_LOADED', slices: figmaSlices });
+        figma.ui.postMessage({ type: 'FIGMA_SLICES_LOADED', slices: figmaSlices, _reqId: reqId });
         break;
       }
 
@@ -120,9 +124,9 @@ case 'EXPORT_FRAME': {
         const frameNode = figma.getNodeById(msg.frameId) as FrameNode;
         if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
 
-        // Remove existing slice nodes
-        const existing = (frameNode.children as SceneNode[]).filter(n => n.type === 'SLICE');
-        for (const node of existing) node.remove();
+        // Remove ALL existing slice nodes (including nested) before recreating
+        const existingSlices = findSliceNodesRecursive(frameNode);
+        for (const node of existingSlices) node.remove();
 
         // Create a SliceNode for each slice
         for (const slice of msg.slices) {
@@ -148,7 +152,7 @@ case 'EXPORT_FRAME': {
           exportedSlices.push({ name: node.name, y_start, y_end, imageBase64: uint8ArrayToBase64(bytes) });
         }
 
-        figma.ui.postMessage({ type: 'SLICE_NODES_CREATED', slices: exportedSlices });
+        figma.ui.postMessage({ type: 'SLICE_NODES_CREATED', slices: exportedSlices, _reqId: reqId });
         break;
       }
 
@@ -196,11 +200,28 @@ case 'EXPORT_FRAME': {
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    figma.ui.postMessage({ type: 'ERROR', message });
+    figma.ui.postMessage({ type: 'ERROR', message, _reqId: reqId });
   }
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Recursively find all visible SliceNode descendants of a container.
+ * This handles slice nodes placed inside groups, not just direct children.
+ */
+function findSliceNodesRecursive(container: ChildrenMixin): SliceNode[] {
+  const slices: SliceNode[] = [];
+  for (const child of container.children as SceneNode[]) {
+    if (!child.visible) continue;
+    if (child.type === 'SLICE') {
+      slices.push(child as SliceNode);
+    } else if ('children' in child) {
+      slices.push(...findSliceNodesRecursive(child as ChildrenMixin));
+    }
+  }
+  return slices;
+}
 
 // ─── Node-based Slice Band Computation ───────────────────────────────────────
 
@@ -284,7 +305,7 @@ function collectChildBands(
 // ─────────────────────────────────────────────────────────────────────────────
 
 function frameHasFigmaSlices(frame: FrameNode): boolean {
-  return (frame.children as SceneNode[]).some(n => n.type === 'SLICE' && n.visible);
+  return findSliceNodesRecursive(frame).length > 0;
 }
 
 function notifyAllPageFrames(): void {
@@ -299,4 +320,3 @@ function notifyAllPageFrames(): void {
   }));
   figma.ui.postMessage({ type: 'ALL_FRAMES_LOADED', data });
 }
-

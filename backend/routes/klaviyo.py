@@ -79,9 +79,9 @@ def push():
             if not image_bytes:
                 return jsonify({'error': f'No image data for slice "{slice_item.get("name")}"'}), 400
 
-            ext = 'jpg'
+            ext, mime_type = _detect_image_format(image_bytes)
             filename = f"{template_name.lower().replace(' ', '_')}_{slice_item.get('name', f'slice_{i}')}_{i}.{ext}"
-            klaviyo_url = client.upload_image(image_bytes, filename)
+            klaviyo_url = client.upload_image(image_bytes, filename, content_type=mime_type)
 
             uploaded_slices.append({
                 **slice_item,
@@ -132,6 +132,17 @@ def push():
             except Exception:
                 detail = e.response.text
         return jsonify({'error': 'Klaviyo API error', 'detail': detail}), 502
+
+
+def _detect_image_format(image_bytes: bytes) -> tuple[str, str]:
+    """Detect image format from magic bytes. Returns (extension, mime_type)."""
+    if len(image_bytes) >= 4 and image_bytes[:4] == b'\x89PNG':
+        return 'png', 'image/png'
+    if len(image_bytes) >= 3 and image_bytes[:3] == b'\xff\xd8\xff':
+        return 'jpg', 'image/jpeg'
+    if len(image_bytes) >= 12 and image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP':
+        return 'webp', 'image/webp'
+    return 'jpg', 'image/jpeg'  # fallback
 
 
 def _get_slice_image(slice_item: dict) -> bytes | None:

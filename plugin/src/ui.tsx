@@ -2,7 +2,7 @@ import { h, render } from 'preact';
 import { useState, useEffect } from 'preact/hooks';
 import { DesignerMode } from './components/DesignerMode';
 import { TechMode } from './components/TechMode';
-import type { SliceData } from './types';
+import type { SliceData, FrameData } from './types';
 
 type Mode = 'designer' | 'tech';
 
@@ -21,25 +21,24 @@ function App() {
   const [noFrameWarning, setNoFrameWarning] = useState(false);
 
   useEffect(() => {
-    window.onmessage = (event: MessageEvent) => {
+    const handler = (event: MessageEvent) => {
       const msg = event.data?.pluginMessage;
       if (!msg) return;
 
       switch (msg.type) {
         case 'ALL_FRAMES_LOADED':
-          setFrames(msg.data);
+          setFrames(msg.data as FrameData[]);
           setNoFrameWarning(false);
           break;
 
         case 'FRAMES_SELECTED':
-          // Kept for TechMode compatibility
-          setFrames(msg.data);
+          setFrames(msg.data as FrameData[]);
           setNoFrameWarning(false);
           break;
 
         case 'FRAME_SELECTED':
           // Backwards compat — wrap single frame in array
-          setFrames([msg.data]);
+          setFrames([msg.data as FrameData]);
           setNoFrameWarning(false);
           break;
 
@@ -49,7 +48,9 @@ function App() {
       }
     };
 
+    window.addEventListener('message', handler);
     parent.postMessage({ pluginMessage: { type: 'GET_ALL_FRAMES' } }, '*');
+    return () => window.removeEventListener('message', handler);
   }, []);
 
   return (

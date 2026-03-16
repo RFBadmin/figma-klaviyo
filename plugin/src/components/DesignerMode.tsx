@@ -11,7 +11,8 @@ interface FrameState {
   step: Step;
   slices: Slice[];
   imageBase64: string | null;
-  figmaSliceImages: Array<{ id: string; image_base64: string }> | null;
+  // ID-keyed map so index shifts from split/delete/rename never cause mismatches
+  figmaSliceImages: Map<string, string> | null;
   compressedSlices: CompressedSlice[];
   compressResponse: CompressResponse | null;
   error: string | null;
@@ -70,10 +71,8 @@ export function DesignerMode({ frames }: Props) {
   useEffect(() => {
     if (frames.length === 0) return;
 
-    // Check all frames by default
     setCheckedIds(new Set(frames.map(f => f.id)));
 
-    // Keep current active frame if still in list, else switch to first
     setActiveFrameId(prev =>
       frames.find(f => f.id === prev) ? prev : frames[0].id
     );
@@ -95,18 +94,23 @@ export function DesignerMode({ frames }: Props) {
   const state: FrameState = frame ? (frameStates[frame.id] ?? defaultState()) : defaultState();
 
   // Auto-export frame image when in preview step but imageBase64 is missing
+  // (only needed when slices came from AI, not from Figma nodes which carry their own images)
   useEffect(() => {
     if (!frame || state.step !== 'preview' || state.imageBase64 !== null) return;
+    if (state.figmaSliceImages !== null) return; // Figma slice images already available
     exportFullFrame(frame.id).then(base64 => {
       patchState(frame.id, { imageBase64: base64 });
-    }).catch(() => {});
-  }, [frame?.id, state.step, state.imageBase64]);
+    }).catch(err => {
+      patchState(frame.id, { error: `Failed to load frame preview: ${err.message}` });
+    });
+  }, [frame?.id, state.step, state.imageBase64, state.figmaSliceImages]);
 
-  // Auto-detect Figma native slice nodes when frame becomes active
+  // Auto-detect Figma native slice nodes when frame becomes active.
+  // We do the check BEFORE showing any spinner — Figma slice reads are instant.
   useEffect(() => {
     if (!frame || !frame.hasFigmaSlices) return;
     if (frame.existingSliceData) return; // saved plugin data takes priority
-    if (state.step !== 'select') return; // already processing
+    if (state.step !== 'select') return;
     sliceFrame(frame);
   }, [frame?.id, frame?.hasFigmaSlices]);
 
@@ -114,29 +118,43 @@ export function DesignerMode({ frames }: Props) {
 
   const sliceFrame = useCallback(async (targetFrame: FrameInfo, forceAI = false) => {
     stopRef.current = false;
-    patchState(targetFrame.id, { error: null, step: 'analyzing' });
-    try {
-      // ── Check for existing Figma Slice nodes first (skip when re-slicing) ─
-      const figmaSlices = forceAI ? [] : await requestFigmaSlices(targetFrame.id);
-      if (stopRef.current) return;
+
+    // ── Check for Figma native slices FIRST (no spinner needed — it's instant) ─
+    if (!forceAI) {
+      let figmaSlices: Array<{ name: string; y_start: number; y_end: number; imageBase64: string }> = [];
+      try {
+        figmaSlices = await requestFigmaSlices(targetFrame.id);
+      } catch {
+        // Couldn't read slices — fall through to AI
+      }
+
       if (figmaSlices.length > 0) {
-        const newSlices: Slice[] = figmaSlices.map((s, i) => ({
-          id: `slice_${Date.now()}_${i}`,
+        const newSlices: Slice[] = figmaSlices.map(s => ({
+          id: generateId(),
           name: s.name,
           y_start: s.y_start,
           y_end: s.y_end,
           alt_text: s.name
         }));
+        // Build ID-keyed map for reliable lookup even after editing
+        const imgMap = new Map<string, string>();
+        figmaSlices.forEach((s, i) => imgMap.set(newSlices[i].id, s.imageBase64));
+
         patchState(targetFrame.id, {
           slices: newSlices,
-          figmaSliceImages: newSlices.map((s, i) => ({ id: s.id, image_base64: figmaSlices[i].imageBase64 })),
+          figmaSliceImages: imgMap,
           imageBase64: null,
           step: 'preview'
         });
         return;
       }
+    }
 
-      // ── No Figma Slices — run AI analysis ───────────────────────────────
+    // ── No Figma slices (or forceAI) — run AI analysis ───────────────────────
+    patchState(targetFrame.id, { error: null, step: 'analyzing' });
+    try {
+      if (stopRef.current) return;
+
       const [base64, bands] = await Promise.all([
         exportFullFrame(targetFrame.id),
         requestFrameLayout(targetFrame.id)
@@ -162,8 +180,8 @@ export function DesignerMode({ frames }: Props) {
       if (!response.ok) throw new Error(`Slicing failed: ${response.statusText}`);
 
       const data = await response.json();
-      const newSlices: Slice[] = data.slices.map((s: { name: string; y_start: number; y_end: number; alt_text: string }, i: number) => ({
-        id: `slice_${Date.now()}_${i}`,
+      const newSlices: Slice[] = data.slices.map((s: { name: string; y_start: number; y_end: number; alt_text: string }) => ({
+        id: generateId(),
         name: s.name,
         y_start: s.y_start,
         y_end: s.y_end,
@@ -182,7 +200,6 @@ export function DesignerMode({ frames }: Props) {
     const targets = frames.filter(f => checkedIds.has(f.id));
     if (targets.length === 0) return;
 
-    // Warn if any target frames already have slice data
     const alreadySliced = targets.filter(f =>
       (frameStates[f.id]?.step && frameStates[f.id].step !== 'select') || f.existingSliceData
     );
@@ -196,22 +213,30 @@ export function DesignerMode({ frames }: Props) {
     }
 
     setBatchProgress({ current: 0, total: targets.length });
+    let lastProcessed = targets[0].id;
     for (let i = 0; i < targets.length; i++) {
       if (stopRef.current) break;
       setBatchProgress({ current: i, total: targets.length });
       setActiveFrameId(targets[i].id);
       await sliceFrame(targets[i]);
+      lastProcessed = targets[i].id;
     }
     setBatchProgress(null);
-    if (!stopRef.current) setActiveFrameId(targets[0].id);
+    // Stay on the last frame that was actually processed
+    if (!stopRef.current) setActiveFrameId(lastProcessed);
     stopRef.current = false;
-  }, [checkedIds, frames, sliceFrame]);
+  }, [checkedIds, frames, frameStates, sliceFrame]);
 
   const applyToFrame = useCallback(async (targetFrame: FrameInfo, currentState: FrameState) => {
     try {
       const exported = await createSliceNodes(targetFrame.id, currentState.slices);
+      // Rebuild the ID-keyed image map from the freshly exported slices
+      const imgMap = new Map<string, string>();
+      currentState.slices.forEach((s, i) => {
+        if (exported[i]?.imageBase64) imgMap.set(s.id, exported[i].imageBase64);
+      });
       patchState(targetFrame.id, {
-        figmaSliceImages: currentState.slices.map((s, i) => ({ id: s.id, image_base64: exported[i]?.imageBase64 ?? '' })),
+        figmaSliceImages: imgMap,
         step: 'applied'
       });
     } catch (err) {
@@ -226,13 +251,26 @@ export function DesignerMode({ frames }: Props) {
 
     try {
       let sliceExports: { id: string; name: string; image_base64: string }[];
-      if (currentState.figmaSliceImages?.length) {
-        // Use pre-exported Figma Slice images — no canvas crop needed
-        sliceExports = currentState.slices.map((s, i) => ({
-          id: s.id,
-          name: s.name,
-          image_base64: currentState.figmaSliceImages![i]?.image_base64 ?? ''
-        }));
+
+      if (currentState.figmaSliceImages?.size) {
+        // Use pre-exported images, looked up by slice ID (not positional index).
+        // If any slice was split/added and has no matching image, fall back to canvas crop.
+        const allHaveImages = currentState.slices.every(s => currentState.figmaSliceImages!.has(s.id));
+        if (allHaveImages) {
+          sliceExports = currentState.slices.map(s => ({
+            id: s.id,
+            name: s.name,
+            image_base64: currentState.figmaSliceImages!.get(s.id)!
+          }));
+        } else {
+          // Some slices were split/added — fall back to full-frame canvas crop
+          let base64 = currentState.imageBase64;
+          if (!base64) {
+            base64 = await exportFullFrame(targetFrame.id);
+            patchState(targetFrame.id, { imageBase64: base64 });
+          }
+          sliceExports = await cropSlicesFromImage(base64, currentState.slices, targetFrame.width);
+        }
       } else {
         let base64 = currentState.imageBase64;
         if (!base64) {
@@ -361,6 +399,10 @@ export function DesignerMode({ frames }: Props) {
                 <span class="frame-check-spinner" />
               )}
               {fs.step === 'preview' && <span class="frame-check-badge">sliced</span>}
+              {/* Show Figma-native-slices indicator when not yet processed */}
+              {f.hasFigmaSlices && fs.step === 'select' && (
+                <span class="frame-check-badge figma-badge" title="Has Figma Slice nodes">✂</span>
+              )}
             </div>
           );
         })}
@@ -380,6 +422,7 @@ export function DesignerMode({ frames }: Props) {
         <FrameWorkflow
           frame={frame}
           state={state}
+          fromFigmaSlices={state.figmaSliceImages !== null}
           onSlice={() => sliceFrame(frame)}
           onReSlice={() => sliceFrame(frame, true)}
           onSlicesChange={(slices) => patchState(frame.id, { slices })}
@@ -406,6 +449,7 @@ export function DesignerMode({ frames }: Props) {
 interface WorkflowProps {
   frame: FrameInfo;
   state: FrameState;
+  fromFigmaSlices: boolean;
   onSlice: () => void;
   onReSlice: () => void;
   onSlicesChange: (slices: Slice[]) => void;
@@ -423,7 +467,7 @@ interface WorkflowProps {
   onFormatChange: (v: 'auto' | 'jpeg' | 'png' | 'webp') => void;
 }
 
-function FrameWorkflow({ frame, state, onSlice, onReSlice, onSlicesChange, onApplyToFrame, onCompress, onSave, onStepChange, onErrorDismiss, onCancelSlice, compressQuality, compressMaxKb, compressFormat, onQualityChange, onMaxKbChange, onFormatChange }: WorkflowProps) {
+function FrameWorkflow({ frame, state, fromFigmaSlices, onSlice, onReSlice, onSlicesChange, onApplyToFrame, onCompress, onSave, onStepChange, onErrorDismiss, onCancelSlice, compressQuality, compressMaxKb, compressFormat, onQualityChange, onMaxKbChange, onFormatChange }: WorkflowProps) {
   const { step, slices, imageBase64, compressResponse, error } = state;
 
   return (
@@ -461,6 +505,9 @@ function FrameWorkflow({ frame, state, onSlice, onReSlice, onSlicesChange, onApp
 
       {step === 'preview' && (
         <div class="step-panel">
+          {fromFigmaSlices && (
+            <p class="figma-slices-notice">✂ Using {slices.length} Figma slice node{slices.length !== 1 ? 's' : ''} from this frame</p>
+          )}
           <SlicePreview
             slices={slices}
             frameHeight={frame.height}
@@ -470,14 +517,19 @@ function FrameWorkflow({ frame, state, onSlice, onReSlice, onSlicesChange, onApp
           />
           <div class="action-row">
             <button class="btn-secondary" onClick={onReSlice}>↻ Re-slice</button>
-            <button class="btn-primary" onClick={onApplyToFrame}>Apply to Frame →</button>
+            {fromFigmaSlices ? (
+              // Figma nodes already exist — skip straight to compression settings
+              <button class="btn-primary" onClick={() => onStepChange('applied')}>Use These Slices →</button>
+            ) : (
+              <button class="btn-primary" onClick={onApplyToFrame}>Apply to Frame →</button>
+            )}
           </div>
         </div>
       )}
 
       {step === 'applied' && (
         <div class="step-panel">
-          <p class="success-inline">✓ Slice nodes created on frame in Figma</p>
+          <p class="success-inline">✓ Slice nodes ready on frame in Figma</p>
 
           <div class="compress-settings">
             <div class="format-row">
@@ -611,43 +663,103 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+/** Generate a collision-resistant ID. */
+function generateId(): string {
+  return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/** Export a frame as PNG and return base64. Times out after 30 s. */
 async function exportFullFrame(frameId: string): Promise<string> {
+  const reqId = generateId();
   return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      window.removeEventListener('message', handler);
+      reject(new Error('Frame export timed out — try again.'));
+    }, 30000);
     const handler = (event: MessageEvent) => {
       const msg = event.data?.pluginMessage;
-      if (msg?.type === 'FRAME_EXPORTED') {
-        window.removeEventListener('message', handler);
-        resolve(msg.data);
-      } else if (msg?.type === 'ERROR') {
-        window.removeEventListener('message', handler);
-        reject(new Error(msg.message));
-      }
+      if (!msg || msg._reqId !== reqId) return;
+      clearTimeout(timer);
+      window.removeEventListener('message', handler);
+      if (msg.type === 'FRAME_EXPORTED') resolve(msg.data);
+      else if (msg.type === 'ERROR') reject(new Error(msg.message));
     };
     window.addEventListener('message', handler);
-    parent.postMessage({ pluginMessage: { type: 'EXPORT_FRAME', frameId } }, '*');
+    parent.postMessage({ pluginMessage: { type: 'EXPORT_FRAME', frameId, _reqId: reqId } }, '*');
   });
 }
 
 /** Ask code.ts to compute slice bands from Figma node bounding boxes. */
 function requestFrameLayout(frameId: string): Promise<LayoutBand[]> {
+  const reqId = generateId();
   return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      window.removeEventListener('message', handler);
+      reject(new Error('Frame layout timed out — try again.'));
+    }, 30000);
     const handler = (event: MessageEvent) => {
       const msg = event.data?.pluginMessage;
-      if (msg?.type === 'FRAME_LAYOUT') {
-        window.removeEventListener('message', handler);
-        resolve(msg.bands);
-      } else if (msg?.type === 'ERROR') {
-        window.removeEventListener('message', handler);
-        reject(new Error(msg.message));
-      }
+      if (!msg || msg._reqId !== reqId) return;
+      clearTimeout(timer);
+      window.removeEventListener('message', handler);
+      if (msg.type === 'FRAME_LAYOUT') resolve(msg.bands);
+      else if (msg.type === 'ERROR') reject(new Error(msg.message));
     };
     window.addEventListener('message', handler);
-    parent.postMessage({ pluginMessage: { type: 'GET_FRAME_LAYOUT', frameId } }, '*');
+    parent.postMessage({ pluginMessage: { type: 'GET_FRAME_LAYOUT', frameId, _reqId: reqId } }, '*');
   });
 }
 
-/** Crop each slice region from the full-frame image using HTML Canvas.
- *  The image was exported at 2× scale, so we account for that. */
+/** Read existing Figma SliceNodes from a frame and return their positions + exported images. */
+function requestFigmaSlices(frameId: string): Promise<Array<{ name: string; y_start: number; y_end: number; imageBase64: string }>> {
+  const reqId = generateId();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      window.removeEventListener('message', handler);
+      reject(new Error('Figma slice read timed out.'));
+    }, 30000);
+    const handler = (event: MessageEvent) => {
+      const msg = event.data?.pluginMessage;
+      if (!msg || msg._reqId !== reqId) return;
+      clearTimeout(timer);
+      window.removeEventListener('message', handler);
+      if (msg.type === 'FIGMA_SLICES_LOADED') resolve(msg.slices);
+      else if (msg.type === 'ERROR') reject(new Error(msg.message));
+    };
+    window.addEventListener('message', handler);
+    parent.postMessage({ pluginMessage: { type: 'GET_FIGMA_SLICES', frameId, _reqId: reqId } }, '*');
+  });
+}
+
+/** Create Figma SliceNodes on the frame matching current slice boundaries, then export each. */
+function createSliceNodes(frameId: string, slices: Slice[]): Promise<Array<{ name: string; y_start: number; y_end: number; imageBase64: string }>> {
+  const reqId = generateId();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      window.removeEventListener('message', handler);
+      reject(new Error('Creating slice nodes timed out — try again.'));
+    }, 60000);
+    const handler = (event: MessageEvent) => {
+      const msg = event.data?.pluginMessage;
+      if (!msg || msg._reqId !== reqId) return;
+      clearTimeout(timer);
+      window.removeEventListener('message', handler);
+      if (msg.type === 'SLICE_NODES_CREATED') resolve(msg.slices);
+      else if (msg.type === 'ERROR') reject(new Error(msg.message));
+    };
+    window.addEventListener('message', handler);
+    parent.postMessage({
+      pluginMessage: {
+        type: 'CREATE_SLICE_NODES',
+        frameId,
+        slices: slices.map(s => ({ name: s.name, y_start: s.y_start, y_end: s.y_end })),
+        _reqId: reqId
+      }
+    }, '*');
+  });
+}
+
+/** Crop each slice region from the full-frame image using HTML Canvas (2× scale aware). */
 async function cropSlicesFromImage(
   imageBase64: string,
   slices: Slice[],
@@ -680,47 +792,5 @@ async function cropSlicesFromImage(
     };
     img.onerror = () => reject(new Error('Failed to load frame image for cropping'));
     img.src = `data:image/png;base64,${imageBase64}`;
-  });
-}
-
-/** Read existing Figma SliceNodes from a frame and return their positions + exported images. */
-function requestFigmaSlices(frameId: string): Promise<Array<{ name: string; y_start: number; y_end: number; imageBase64: string }>> {
-  return new Promise((resolve, reject) => {
-    const handler = (event: MessageEvent) => {
-      const msg = event.data?.pluginMessage;
-      if (msg?.type === 'FIGMA_SLICES_LOADED') {
-        window.removeEventListener('message', handler);
-        resolve(msg.slices);
-      } else if (msg?.type === 'ERROR') {
-        window.removeEventListener('message', handler);
-        reject(new Error(msg.message));
-      }
-    };
-    window.addEventListener('message', handler);
-    parent.postMessage({ pluginMessage: { type: 'GET_FIGMA_SLICES', frameId } }, '*');
-  });
-}
-
-/** Create Figma SliceNodes on the frame matching current slice boundaries, then export each. */
-function createSliceNodes(frameId: string, slices: Slice[]): Promise<Array<{ name: string; y_start: number; y_end: number; imageBase64: string }>> {
-  return new Promise((resolve, reject) => {
-    const handler = (event: MessageEvent) => {
-      const msg = event.data?.pluginMessage;
-      if (msg?.type === 'SLICE_NODES_CREATED') {
-        window.removeEventListener('message', handler);
-        resolve(msg.slices);
-      } else if (msg?.type === 'ERROR') {
-        window.removeEventListener('message', handler);
-        reject(new Error(msg.message));
-      }
-    };
-    window.addEventListener('message', handler);
-    parent.postMessage({
-      pluginMessage: {
-        type: 'CREATE_SLICE_NODES',
-        frameId,
-        slices: slices.map(s => ({ name: s.name, y_start: s.y_start, y_end: s.y_end }))
-      }
-    }, '*');
   });
 }

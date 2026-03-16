@@ -1,12 +1,16 @@
 const sharp = require('sharp');
 
-const KLAVIYO_MAX_BYTES = 5 * 1024 * 1024; // 5MB — Klaviyo image API hard limit
+const KLAVIYO_MAX_BYTES = 5 * 1024 * 1024; // 5 MB — Klaviyo image API hard limit
 
 async function compressSlice(imageBuffer, settings) {
   const metadata = await sharp(imageBuffer).metadata();
+  const { quality = 82, format = 'auto', max_size_kb = 500 } = settings;
 
-  // If within Klaviyo's 5MB limit, use the original — no compression needed
-  if (imageBuffer.length <= KLAVIYO_MAX_BYTES) {
+  // Respect user's max size, but never exceed Klaviyo's 5 MB hard limit
+  const targetMax = Math.min(max_size_kb * 1024, KLAVIYO_MAX_BYTES);
+
+  // If already within the user's target limit, return original unchanged
+  if (imageBuffer.length <= targetMax) {
     return {
       buffer: imageBuffer,
       format: metadata.format || 'png',
@@ -15,12 +19,11 @@ async function compressSlice(imageBuffer, settings) {
     };
   }
 
-  // Original exceeds 5MB — must compress to meet Klaviyo's hard limit
-  const { quality = 82, format = 'auto' } = settings;
+  // Need to compress below targetMax
   const hasAlpha = metadata.hasAlpha;
 
-  // PNG is lossless — can't compress a large complex image below 5MB with PNG.
-  // Force lossy format: webp (preserves alpha) or jpeg.
+  // PNG is lossless — can't compress a large complex image below the target with PNG.
+  // Force lossy: webp (preserves alpha) or jpeg.
   let outFormat = format === 'auto' || format === 'png'
     ? (hasAlpha ? 'webp' : 'jpeg')
     : format;
@@ -34,8 +37,10 @@ async function compressSlice(imageBuffer, settings) {
 
   let q = Math.min(100, Math.max(1, quality));
   let buf = await encode(q);
-  while (buf.length > KLAVIYO_MAX_BYTES && q > 1) {
-    q = Math.max(1, q - 12);
+
+  // Reduce quality by 8 per step (finer grain than 12) until within target
+  while (buf.length > targetMax && q > 1) {
+    q = Math.max(1, q - 8);
     buf = await encode(q);
   }
 

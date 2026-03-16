@@ -17,7 +17,7 @@ class KlaviyoClient:
 
     # ─── Images ───────────────────────────────────────────────────────────────
 
-    def upload_image(self, image_bytes: bytes, filename: str) -> str:
+    def upload_image(self, image_bytes: bytes, filename: str, content_type: str = 'image/jpeg') -> str:
         """
         Upload image to Klaviyo CDN.
         Returns the hosted image URL.
@@ -30,7 +30,7 @@ class KlaviyoClient:
             "revision": self.API_REVISION
         }
 
-        files = {'file': (filename, image_bytes, 'image/jpeg')}
+        files = {'file': (filename, image_bytes, content_type)}
         response = requests.post(url, headers=upload_headers, files=files)
         response.raise_for_status()
 

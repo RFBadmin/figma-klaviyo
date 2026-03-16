@@ -61,7 +61,7 @@ export function SlicePreview({ slices, frameHeight, imageBase64, onSlicesChange,
     const midY = Math.round((slice.y_start + slice.y_end) / 2);
 
     const newSlice: Slice = {
-      id: `slice_${Date.now()}`,
+      id: `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`,
       name: `section_${slices.length + 1}`,
       y_start: midY,
       y_end: slice.y_end,
@@ -100,7 +100,7 @@ export function SlicePreview({ slices, frameHeight, imageBase64, onSlicesChange,
     <div class="slice-preview">
       <div class="preview-header">
         <span>Slices: {slices.length}</span>
-        <span>Est. Size: ~{estimateSize(slices)} KB</span>
+        <span>Est. Size: ~{estimateSize(slices, frameHeight)} KB</span>
       </div>
 
       <div
@@ -186,7 +186,10 @@ export function SlicePreview({ slices, frameHeight, imageBase64, onSlicesChange,
   );
 }
 
-function estimateSize(slices: Slice[]): number {
-  // Rough estimate: average 90KB per slice
-  return slices.length * 90;
+function estimateSize(slices: Slice[], frameHeight: number): number {
+  // ~180 KB for a full 600×frameHeight frame at JPEG 82%; scale proportionally per slice.
+  if (frameHeight <= 0) return slices.length * 90;
+  const KB_PER_PX = 180 / frameHeight;
+  const total = slices.reduce((sum, s) => sum + (s.y_end - s.y_start) * KB_PER_PX, 0);
+  return Math.round(total);
 }

@@ -110,6 +110,17 @@ export interface KlaviyoCampaignConfig {
   sendTime?: string;
 }
 
+// ─── Frame Info (shared) ──────────────────────────────────────────────────────
+
+export interface FrameData {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  existingSliceData?: SliceData | null;
+  hasFigmaSlices?: boolean;
+}
+
 // ─── Messages (plugin ↔ UI) ───────────────────────────────────────────────────
 
 export interface LayoutBand {
@@ -119,22 +130,26 @@ export interface LayoutBand {
 }
 
 export type PluginMessage =
-  | { type: 'ALL_FRAMES_LOADED'; data: Array<{ id: string; name: string; width: number; height: number; existingSliceData?: SliceData | null }> }
-  | { type: 'FRAMES_SELECTED'; data: Array<{ id: string; name: string; width: number; height: number; existingSliceData?: SliceData | null }> }
-  | { type: 'FRAME_SELECTED'; data: { id: string; name: string; width: number; height: number; existingSliceData?: SliceData | null } }
+  | { type: 'ALL_FRAMES_LOADED'; data: FrameData[] }
+  | { type: 'FRAMES_SELECTED'; data: FrameData[] }
+  | { type: 'FRAME_SELECTED'; data: FrameData }
   | { type: 'NO_FRAME_SELECTED' }
   | { type: 'SLICE_DATA_LOADED'; data: SliceData }
+  | { type: 'SLICE_DATA_SAVED' }
   | { type: 'EXPORT_COMPLETE'; data: SliceExport[] }
-  | { type: 'FRAME_EXPORTED'; data: string }
-  | { type: 'FRAME_LAYOUT'; bands: LayoutBand[]; frameHeight: number }
-  | { type: 'FIGMA_SLICES_LOADED'; slices: Array<{ name: string; y_start: number; y_end: number; imageBase64: string }> }
-  | { type: 'SLICE_NODES_CREATED'; slices: Array<{ name: string; y_start: number; y_end: number; imageBase64: string }> }
-  | { type: 'ERROR'; message: string };
+  | { type: 'FRAME_EXPORTED'; data: string; _reqId?: string }
+  | { type: 'FRAME_LAYOUT'; bands: LayoutBand[]; frameHeight: number; _reqId?: string }
+  | { type: 'FIGMA_SLICES_LOADED'; slices: Array<{ name: string; y_start: number; y_end: number; imageBase64: string }>; _reqId?: string }
+  | { type: 'SLICE_NODES_CREATED'; slices: Array<{ name: string; y_start: number; y_end: number; imageBase64: string }>; _reqId?: string }
+  | { type: 'USER_INFO'; name: string }
+  | { type: 'KLAVIYO_KEY_LOADED'; key: string | null }
+  | { type: 'KLAVIYO_KEY_SAVED' }
+  | { type: 'ERROR'; message: string; _reqId?: string };
 
 export type UIMessage =
   | { type: 'GET_ALL_FRAMES' }
-  | { type: 'EXPORT_FRAME'; frameId: string }
-  | { type: 'GET_FRAME_LAYOUT'; frameId: string }
+  | { type: 'EXPORT_FRAME'; frameId: string; _reqId?: string }
+  | { type: 'GET_FRAME_LAYOUT'; frameId: string; _reqId?: string }
   | { type: 'EXPORT_SLICES'; frameId: string; slices: Slice[] }
   | { type: 'SAVE_SLICE_DATA'; frameId: string; data: SliceData }
   | { type: 'LOAD_SLICE_DATA'; frameId: string }
@@ -143,6 +158,6 @@ export type UIMessage =
   | { type: 'SAVE_KLAVIYO_KEY'; key: string }
   | { type: 'GET_KLAVIYO_KEY' }
   | { type: 'GET_USER_INFO' }
-  | { type: 'GET_FIGMA_SLICES'; frameId: string }
-  | { type: 'CREATE_SLICE_NODES'; frameId: string; slices: Array<{ name: string; y_start: number; y_end: number }> }
+  | { type: 'GET_FIGMA_SLICES'; frameId: string; _reqId?: string }
+  | { type: 'CREATE_SLICE_NODES'; frameId: string; slices: Array<{ name: string; y_start: number; y_end: number }>; _reqId?: string }
   | { type: 'CLOSE_PLUGIN' };

@@ -5,16 +5,19 @@ import type { KlaviyoList, KlaviyoCampaignConfig } from '../types';
 interface Props {
   apiKey: string;
   backendUrl: string;
+  /** Pre-fills template name (e.g. frame name). User can override. */
+  defaultTemplateName?: string;
   onChange: (config: KlaviyoCampaignConfig) => void;
 }
 
-export function KlaviyoConfig({ apiKey, backendUrl, onChange }: Props) {
+export function KlaviyoConfig({ apiKey, backendUrl, defaultTemplateName = '', onChange }: Props) {
   const [lists, setLists] = useState<KlaviyoList[]>([]);
   const [loading, setLoading] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
   const [config, setConfig] = useState<KlaviyoCampaignConfig>({
     mode: 'template',
-    templateName: '',
-    campaignName: '',
+    templateName: defaultTemplateName,
+    campaignName: defaultTemplateName,
     subject: '',
     previewText: '',
     fromEmail: '',
@@ -22,6 +25,16 @@ export function KlaviyoConfig({ apiKey, backendUrl, onChange }: Props) {
     listId: '',
     sendTime: undefined
   });
+
+  // Sync defaultTemplateName into state when it changes (e.g. on first render with a value)
+  useEffect(() => {
+    if (!defaultTemplateName) return;
+    setConfig(prev => ({
+      ...prev,
+      templateName: prev.templateName || defaultTemplateName,
+      campaignName: prev.campaignName || defaultTemplateName
+    }));
+  }, [defaultTemplateName]);
 
   useEffect(() => {
     fetchLists();
@@ -33,17 +46,23 @@ export function KlaviyoConfig({ apiKey, backendUrl, onChange }: Props) {
 
   async function fetchLists() {
     setLoading(true);
+    setListError(null);
     try {
       const res = await fetch(`${backendUrl}/api/klaviyo/lists`, {
         headers: { 'X-Klaviyo-Key': apiKey }
       });
-      if (res.ok) {
-        const data = await res.json();
-        setLists(data.lists);
-        if (data.lists.length > 0) {
-          update('listId', data.lists[0].id);
-        }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        setListError(err.error || `Failed to load lists (${res.status})`);
+        return;
       }
+      const data = await res.json();
+      setLists(data.lists);
+      if (data.lists.length > 0) {
+        update('listId', data.lists[0].id);
+      }
+    } catch {
+      setListError('Could not reach backend — check your connection.');
     } finally {
       setLoading(false);
     }
@@ -147,6 +166,8 @@ export function KlaviyoConfig({ apiKey, backendUrl, onChange }: Props) {
             <label>Send To List</label>
             {loading ? (
               <p style={{ fontSize: 12, color: '#666' }}>Loading lists…</p>
+            ) : listError ? (
+              <p style={{ fontSize: 12, color: '#e74c3c' }}>⚠ {listError}</p>
             ) : (
               <select
                 value={config.listId}

@@ -139,6 +139,7 @@
       });
       figma.ui.onmessage = (msg) => __async(null, null, function* () {
         var _a, _b, _c, _d, _e, _f, _g, _h;
+        const reqId = msg._reqId;
         try {
           switch (msg.type) {
             case "GET_ALL_FRAMES": {
@@ -156,7 +157,7 @@
                 format: "PNG",
                 constraint: { type: "SCALE", value: 2 }
               });
-              figma.ui.postMessage({ type: "FRAME_EXPORTED", data: uint8ArrayToBase64(bytes) });
+              figma.ui.postMessage({ type: "FRAME_EXPORTED", data: uint8ArrayToBase64(bytes), _reqId: reqId });
               break;
             }
             case "GET_FRAME_LAYOUT": {
@@ -164,16 +165,16 @@
               if (!layoutFrame) throw new Error(`Frame ${msg.frameId} not found`);
               const frameAbsY = (_b = (_a = layoutFrame.absoluteBoundingBox) == null ? void 0 : _a.y) != null ? _b : 0;
               const bands = computeSliceBands(layoutFrame, frameAbsY, layoutFrame.height);
-              figma.ui.postMessage({ type: "FRAME_LAYOUT", bands, frameHeight: layoutFrame.height });
+              figma.ui.postMessage({ type: "FRAME_LAYOUT", bands, frameHeight: layoutFrame.height, _reqId: reqId });
               break;
             }
             case "GET_FIGMA_SLICES": {
               const frameNode = figma.getNodeById(msg.frameId);
               if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
               const frameAbsY = (_d = (_c = frameNode.absoluteBoundingBox) == null ? void 0 : _c.y) != null ? _d : 0;
-              const sliceNodes = frameNode.children.filter((n) => n.type === "SLICE" && n.visible);
+              const sliceNodes = findSliceNodesRecursive(frameNode);
               if (sliceNodes.length === 0) {
-                figma.ui.postMessage({ type: "FIGMA_SLICES_LOADED", slices: [] });
+                figma.ui.postMessage({ type: "FIGMA_SLICES_LOADED", slices: [], _reqId: reqId });
                 break;
               }
               const figmaSlices = [];
@@ -188,14 +189,14 @@
                 figmaSlices.push({ name: node.name || `slice_${i + 1}`, y_start, y_end, imageBase64: uint8ArrayToBase64(bytes) });
               }
               figmaSlices.sort((a, b) => a.y_start - b.y_start);
-              figma.ui.postMessage({ type: "FIGMA_SLICES_LOADED", slices: figmaSlices });
+              figma.ui.postMessage({ type: "FIGMA_SLICES_LOADED", slices: figmaSlices, _reqId: reqId });
               break;
             }
             case "CREATE_SLICE_NODES": {
               const frameNode = figma.getNodeById(msg.frameId);
               if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
-              const existing = frameNode.children.filter((n) => n.type === "SLICE");
-              for (const node of existing) node.remove();
+              const existingSlices = findSliceNodesRecursive(frameNode);
+              for (const node of existingSlices) node.remove();
               for (const slice of msg.slices) {
                 const sliceNode = figma.createSlice();
                 frameNode.appendChild(sliceNode);
@@ -215,7 +216,7 @@
                 const y_end = Math.min(frameNode.height, Math.round(bbox.y - absY + bbox.height));
                 exportedSlices.push({ name: node.name, y_start, y_end, imageBase64: uint8ArrayToBase64(bytes) });
               }
-              figma.ui.postMessage({ type: "SLICE_NODES_CREATED", slices: exportedSlices });
+              figma.ui.postMessage({ type: "SLICE_NODES_CREATED", slices: exportedSlices, _reqId: reqId });
               break;
             }
             case "SAVE_SLICE_DATA": {
@@ -256,9 +257,21 @@
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          figma.ui.postMessage({ type: "ERROR", message });
+          figma.ui.postMessage({ type: "ERROR", message, _reqId: reqId });
         }
       });
+      function findSliceNodesRecursive(container) {
+        const slices = [];
+        for (const child of container.children) {
+          if (!child.visible) continue;
+          if (child.type === "SLICE") {
+            slices.push(child);
+          } else if ("children" in child) {
+            slices.push(...findSliceNodesRecursive(child));
+          }
+        }
+        return slices;
+      }
       function computeSliceBands(frame, frameAbsY, frameHeight) {
         const raw = collectChildBands(frame.children, frameAbsY, frameHeight);
         if (raw.length <= 1 && frame.children.length === 1) {
@@ -314,7 +327,7 @@
         return bands;
       }
       function frameHasFigmaSlices(frame) {
-        return frame.children.some((n) => n.type === "SLICE" && n.visible);
+        return findSliceNodesRecursive(frame).length > 0;
       }
       function notifyAllPageFrames() {
         const frames = getAllEmailFrames();
