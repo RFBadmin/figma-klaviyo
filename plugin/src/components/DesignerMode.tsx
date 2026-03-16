@@ -94,6 +94,14 @@ export function DesignerMode({ frames }: Props) {
   const frame = frames.find(f => f.id === activeFrameId) ?? frames[0] ?? null;
   const state: FrameState = frame ? (frameStates[frame.id] ?? defaultState()) : defaultState();
 
+  // Auto-export frame image when in preview step but imageBase64 is missing
+  useEffect(() => {
+    if (!frame || state.step !== 'preview' || state.imageBase64 !== null) return;
+    exportFullFrame(frame.id).then(base64 => {
+      patchState(frame.id, { imageBase64: base64 });
+    }).catch(() => {});
+  }, [frame?.id, state.step, state.imageBase64]);
+
   // ─── Actions ──────────────────────────────────────────────────────────────
 
   const sliceFrame = useCallback(async (targetFrame: FrameInfo, forceAI = false) => {

@@ -94,7 +94,7 @@ def push():
         # ── Step 3: Create Template ──────────────────────────────────────────
         template_result = client.create_template(name=template_name, html_content=html)
         template_id = template_result['data']['id']
-        template_url = f"https://www.klaviyo.com/email-editor/{template_id}"
+        template_url = f"https://www.klaviyo.com/email-template-editor/{template_id}"
 
         response = {
             'templateId': template_id,
@@ -119,7 +119,7 @@ def push():
             )
             campaign_id = campaign_result['data']['id']
             response['campaignId'] = campaign_id
-            response['campaignUrl'] = f"https://www.klaviyo.com/campaigns/{campaign_id}"
+            response['campaignUrl'] = f"https://www.klaviyo.com/campaign/{campaign_id}/wizard/2"
 
         return jsonify(response)
 
