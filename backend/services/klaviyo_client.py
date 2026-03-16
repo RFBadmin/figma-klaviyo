@@ -129,11 +129,9 @@ class KlaviyoClient:
 
         payload = {
             "data": {
-                "type": "campaign-message-assign-template",
+                "type": "campaign-message",
+                "id": message_id,
                 "relationships": {
-                    "campaign-message": {
-                        "data": {"type": "campaign-message", "id": message_id}
-                    },
                     "template": {
                         "data": {"type": "template", "id": template_id}
                     }

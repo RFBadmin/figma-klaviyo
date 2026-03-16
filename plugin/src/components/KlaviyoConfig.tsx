@@ -108,6 +108,9 @@ export function KlaviyoConfig({ apiKey, backendUrl, onChange }: Props) {
               placeholder="e.g. store@mycompany.com"
               onInput={(e) => update('fromEmail', (e.target as HTMLInputElement).value)}
             />
+            {config.fromEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(config.fromEmail) && (
+              <p style={{ fontSize: 11, color: '#e74c3c', margin: '4px 0 0' }}>Invalid email address</p>
+            )}
           </div>
 
           <div class="form-field">

@@ -1395,7 +1395,8 @@
               placeholder: "e.g. store@mycompany.com",
               onInput: (e3) => update("fromEmail", e3.target.value)
             }
-          )
+          ),
+          config.fromEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(config.fromEmail) && /* @__PURE__ */ u3("p", { style: { fontSize: 11, color: "#e74c3c", margin: "4px 0 0" }, children: "Invalid email address" })
         ] }),
         /* @__PURE__ */ u3("div", { class: "form-field", children: [
           /* @__PURE__ */ u3("label", { children: "From Name" }),
