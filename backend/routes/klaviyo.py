@@ -119,7 +119,7 @@ def push():
             )
             campaign_id = campaign_result['data']['id']
             response['campaignId'] = campaign_id
-            response['campaignUrl'] = f"https://www.klaviyo.com/campaign/{campaign_id}/wizard/2"
+            response['campaignUrl'] = f"https://www.klaviyo.com/campaign/{campaign_id}/wizard"
 
         return jsonify(response)
 

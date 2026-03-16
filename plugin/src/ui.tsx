@@ -12,6 +12,7 @@ export interface FrameInfo {
   width: number;
   height: number;
   existingSliceData?: SliceData | null;
+  hasFigmaSlices?: boolean;
 }
 
 function App() {
@@ -76,7 +77,7 @@ function App() {
       <main class="plugin-content">
         {mode === 'designer'
           ? <DesignerMode frames={frames} />
-          : <TechMode frame={frames[0] ?? null} />
+          : <TechMode frames={frames} />
         }
       </main>
     </div>

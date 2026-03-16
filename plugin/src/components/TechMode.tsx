@@ -2,35 +2,36 @@ import { h } from 'preact';
 import { useState, useEffect, useCallback } from 'preact/hooks';
 import { KlaviyoConfig } from './KlaviyoConfig';
 import type { SliceData, Slice, KlaviyoCampaignConfig } from '../types';
+import type { FrameInfo } from '../ui';
 
 const BACKEND_URL = 'https://figma-klaviyo-production.up.railway.app';
 
 type Step = 'key_setup' | 'configure' | 'pushing' | 'done';
 
-interface FrameInfo {
-  id: string;
-  name: string;
-  width: number;
-  height: number;
-  existingSliceData?: SliceData | null;
+// Slice with a frameId tag for multi-frame tracking
+interface TaggedSlice extends Slice {
+  _frameId: string;
+  _frameName: string;
 }
 
 interface Props {
-  frame: FrameInfo | null;
+  frames: FrameInfo[];
 }
 
-export function TechMode({ frame }: Props) {
+export function TechMode({ frames }: Props) {
   const [step, setStep] = useState<Step>('key_setup');
   const [klaviyoKey, setKlaviyoKey] = useState<string | null>(null);
   const [keyInput, setKeyInput] = useState('');
   const [keyError, setKeyError] = useState<string | null>(null);
   const [figmaUserName, setFigmaUserName] = useState<string>('');
-  const [sliceData, setSliceData] = useState<SliceData | null>(null);
-  const [editedSlices, setEditedSlices] = useState<Slice[]>([]);
+  const [editedSlices, setEditedSlices] = useState<TaggedSlice[]>([]);
   const [klaviyoConfig, setKlaviyoConfig] = useState<KlaviyoCampaignConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pushResult, setPushResult] = useState<{ templateUrl?: string; campaignUrl?: string } | null>(null);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+
+  // Frames that have been sliced and saved by the designer
+  const readyFrames = frames.filter(f => f.existingSliceData);
 
   // On mount: load saved API key + Figma username
   useEffect(() => {
@@ -61,13 +62,17 @@ export function TechMode({ frame }: Props) {
     return () => window.removeEventListener('message', handler);
   }, []);
 
-  // When frame changes and key is ready, load slice data
+  // When ready frames change and key is ready, rebuild combined slice list
   useEffect(() => {
-    if (klaviyoKey && frame?.existingSliceData) {
-      setSliceData(frame.existingSliceData);
-      setEditedSlices(frame.existingSliceData.slices);
+    if (!klaviyoKey) return;
+    const combined: TaggedSlice[] = [];
+    for (const f of readyFrames) {
+      for (const s of f.existingSliceData!.slices) {
+        combined.push({ ...s, _frameId: f.id, _frameName: f.existingSliceData!.frame_name ?? f.name });
+      }
     }
-  }, [frame, klaviyoKey]);
+    setEditedSlices(combined);
+  }, [klaviyoKey, frames.map(f => f.id + (f.existingSliceData ? '1' : '0')).join(',')]);
 
   const handleSaveKey = useCallback(() => {
     const trimmed = keyInput.trim();
@@ -87,7 +92,7 @@ export function TechMode({ frame }: Props) {
   }, []);
 
   const handlePreviewHtml = useCallback(async () => {
-    if (!sliceData) return;
+    if (editedSlices.length === 0) return;
     try {
       const res = await fetch(`${BACKEND_URL}/api/klaviyo/preview`, {
         method: 'POST',
@@ -99,7 +104,7 @@ export function TechMode({ frame }: Props) {
     } catch {
       setError('Failed to generate preview.');
     }
-  }, [sliceData, editedSlices]);
+  }, [editedSlices]);
 
   const handlePush = useCallback(async () => {
     if (!klaviyoKey || !klaviyoConfig) return;
@@ -107,18 +112,22 @@ export function TechMode({ frame }: Props) {
     setStep('pushing');
 
     try {
-      // Fetch fresh images from Figma slice nodes so we don't depend on
-      // temp files (which are wiped on every server redeploy).
-      let slicesForPush: (Slice & { image_base64?: string })[] = editedSlices;
-      if (sliceData?.frame_id) {
-        const imageMap = await fetchFigmaSliceImages(sliceData.frame_id);
-        if (imageMap.size > 0) {
-          slicesForPush = editedSlices.map(s => ({
-            ...s,
-            image_base64: imageMap.get(s.name) ?? undefined
-          }));
+      // Fetch fresh images from Figma slice nodes for all ready frames
+      const imageMap = new Map<string, string>(); // frameName:sliceName → base64
+      for (const f of readyFrames) {
+        const frameMap = await fetchFigmaSliceImages(f.id);
+        for (const [name, b64] of frameMap) {
+          imageMap.set(`${f.id}::${name}`, b64);
         }
       }
+
+      // Build combined slices list, enriching with fresh images where available
+      const slicesForPush = editedSlices.map(s => {
+        const freshImage = imageMap.get(`${s._frameId}::${s.name}`);
+        return freshImage
+          ? { ...s, image_base64: freshImage }
+          : s;
+      });
 
       const res = await fetch(`${BACKEND_URL}/api/klaviyo/push`, {
         method: 'POST',
@@ -146,7 +155,7 @@ export function TechMode({ frame }: Props) {
       setError(msg);
       setStep('configure');
     }
-  }, [klaviyoKey, editedSlices, klaviyoConfig]);
+  }, [klaviyoKey, editedSlices, klaviyoConfig, readyFrames]);
 
   const updateSlice = useCallback((id: string, field: keyof Slice, value: string) => {
     setEditedSlices(prev => prev.map(s => s.id === id ? { ...s, [field]: value } : s));
@@ -209,15 +218,15 @@ export function TechMode({ frame }: Props) {
             </div>
           </div>
 
-          {!frame?.existingSliceData ? (
-            <div class="warning-box">⚠ Select a Figma frame that has been sliced by the Design team.</div>
+          {readyFrames.length === 0 ? (
+            <div class="warning-box">⚠ No sliced frames found. Have the Design team slice frames first.</div>
           ) : (
             <>
               <div class="design-summary">
                 <span>📧</span>
                 <div>
-                  <strong>{sliceData?.frame_name ?? frame.name}</strong>
-                  <span>{editedSlices.length} slices • {formatDate(sliceData?.created_at ?? '')}</span>
+                  <strong>{readyFrames.length === 1 ? readyFrames[0].name : `${readyFrames.length} frames`}</strong>
+                  <span>{editedSlices.length} slices total</span>
                 </div>
               </div>
 
@@ -227,27 +236,44 @@ export function TechMode({ frame }: Props) {
                   <tr><th>#</th><th>Name</th><th>Alt Text</th><th>Link</th></tr>
                 </thead>
                 <tbody>
-                  {editedSlices.map((slice, i) => (
-                    <tr key={slice.id}>
-                      <td>{i + 1}</td>
-                      <td>{slice.name}</td>
-                      <td>
-                        <input
-                          type="text"
-                          value={slice.alt_text}
-                          onInput={(e) => updateSlice(slice.id, 'alt_text', (e.target as HTMLInputElement).value)}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="text"
-                          value={slice.link ?? ''}
-                          placeholder="https://..."
-                          onInput={(e) => updateSlice(slice.id, 'link', (e.target as HTMLInputElement).value)}
-                        />
-                      </td>
-                    </tr>
-                  ))}
+                  {(() => {
+                    const rows: h.JSX.Element[] = [];
+                    let globalIdx = 0;
+                    let lastFrameName = '';
+                    for (const slice of editedSlices) {
+                      if (readyFrames.length > 1 && slice._frameName !== lastFrameName) {
+                        lastFrameName = slice._frameName;
+                        rows.push(
+                          <tr key={`frame-${slice._frameId}`} class="frame-divider-row">
+                            <td colSpan={4}>📄 {slice._frameName}</td>
+                          </tr>
+                        );
+                      }
+                      globalIdx++;
+                      rows.push(
+                        <tr key={slice.id}>
+                          <td>{globalIdx}</td>
+                          <td>{slice.name}</td>
+                          <td>
+                            <input
+                              type="text"
+                              value={slice.alt_text}
+                              onInput={(e) => updateSlice(slice.id, 'alt_text', (e.target as HTMLInputElement).value)}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="text"
+                              value={slice.link ?? ''}
+                              placeholder="https://..."
+                              onInput={(e) => updateSlice(slice.id, 'link', (e.target as HTMLInputElement).value)}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    }
+                    return rows;
+                  })()}
                 </tbody>
               </table>
 

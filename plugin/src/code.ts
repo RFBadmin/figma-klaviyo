@@ -18,7 +18,8 @@ if (initialSelected.length > 0) {
     name: frame.name,
     width: frame.width,
     height: frame.height,
-    existingSliceData: loadSliceData(frame.id)
+    existingSliceData: loadSliceData(frame.id),
+    hasFigmaSlices: frameHasFigmaSlices(frame)
   }));
   figma.ui.postMessage({ type: 'FRAMES_SELECTED', data });
 } else {
@@ -40,7 +41,8 @@ figma.on('selectionchange', () => {
       name: frame.name,
       width: frame.width,
       height: frame.height,
-      existingSliceData: loadSliceData(frame.id)
+      existingSliceData: loadSliceData(frame.id),
+      hasFigmaSlices: frameHasFigmaSlices(frame)
     }));
     figma.ui.postMessage({ type: 'FRAMES_SELECTED', data });
   } else {
@@ -281,6 +283,10 @@ function collectChildBands(
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+function frameHasFigmaSlices(frame: FrameNode): boolean {
+  return (frame.children as SceneNode[]).some(n => n.type === 'SLICE' && n.visible);
+}
+
 function notifyAllPageFrames(): void {
   const frames = getAllEmailFrames();
   const data = frames.map(frame => ({
@@ -288,7 +294,8 @@ function notifyAllPageFrames(): void {
     name: frame.name,
     width: frame.width,
     height: frame.height,
-    existingSliceData: loadSliceData(frame.id)
+    existingSliceData: loadSliceData(frame.id),
+    hasFigmaSlices: frameHasFigmaSlices(frame)
   }));
   figma.ui.postMessage({ type: 'ALL_FRAMES_LOADED', data });
 }

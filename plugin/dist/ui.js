@@ -717,6 +717,12 @@
       }).catch(() => {
       });
     }, [frame == null ? void 0 : frame.id, state.step, state.imageBase64]);
+    y2(() => {
+      if (!frame || !frame.hasFigmaSlices) return;
+      if (frame.existingSliceData) return;
+      if (state.step !== "select") return;
+      sliceFrame(frame);
+    }, [frame == null ? void 0 : frame.id, frame == null ? void 0 : frame.hasFigmaSlices]);
     const sliceFrame = q2((targetFrame, forceAI = false) => __async(null, null, function* () {
       stopRef.current = false;
       patchState(targetFrame.id, { error: null, step: "analyzing" });
@@ -778,6 +784,20 @@
     const sliceAllChecked = q2(() => __async(null, null, function* () {
       const targets = frames.filter((f4) => checkedIds.has(f4.id));
       if (targets.length === 0) return;
+      const alreadySliced = targets.filter(
+        (f4) => {
+          var _a2;
+          return ((_a2 = frameStates[f4.id]) == null ? void 0 : _a2.step) && frameStates[f4.id].step !== "select" || f4.existingSliceData;
+        }
+      );
+      if (alreadySliced.length > 0) {
+        const names = alreadySliced.map((f4) => f4.name).join(", ");
+        const plural = alreadySliced.length > 1;
+        const ok = window.confirm(
+          `"${names}" ${plural ? "already have" : "already has"} slices. Re-slicing will overwrite them. Continue?`
+        );
+        if (!ok) return;
+      }
       setBatchProgress({ current: 0, total: targets.length });
       for (let i3 = 0; i3 < targets.length; i3++) {
         if (stopRef.current) break;
@@ -1463,25 +1483,24 @@
 
   // src/components/TechMode.tsx
   var BACKEND_URL2 = "https://figma-klaviyo-production.up.railway.app";
-  function TechMode({ frame }) {
-    var _a, _b;
+  function TechMode({ frames }) {
     const [step, setStep] = d2("key_setup");
     const [klaviyoKey, setKlaviyoKey] = d2(null);
     const [keyInput, setKeyInput] = d2("");
     const [keyError, setKeyError] = d2(null);
     const [figmaUserName, setFigmaUserName] = d2("");
-    const [sliceData, setSliceData] = d2(null);
     const [editedSlices, setEditedSlices] = d2([]);
     const [klaviyoConfig, setKlaviyoConfig] = d2(null);
     const [error, setError] = d2(null);
     const [pushResult, setPushResult] = d2(null);
     const [previewHtml, setPreviewHtml] = d2(null);
+    const readyFrames = frames.filter((f4) => f4.existingSliceData);
     y2(() => {
       parent.postMessage({ pluginMessage: { type: "GET_KLAVIYO_KEY" } }, "*");
       parent.postMessage({ pluginMessage: { type: "GET_USER_INFO" } }, "*");
       const handler = (event) => {
-        var _a2, _b2;
-        const msg = (_a2 = event.data) == null ? void 0 : _a2.pluginMessage;
+        var _a, _b;
+        const msg = (_a = event.data) == null ? void 0 : _a.pluginMessage;
         if (!msg) return;
         if (msg.type === "KLAVIYO_KEY_LOADED") {
           if (msg.key) {
@@ -1493,18 +1512,23 @@
           setStep("configure");
         }
         if (msg.type === "USER_INFO") {
-          setFigmaUserName((_b2 = msg.name) != null ? _b2 : "");
+          setFigmaUserName((_b = msg.name) != null ? _b : "");
         }
       };
       window.addEventListener("message", handler);
       return () => window.removeEventListener("message", handler);
     }, []);
     y2(() => {
-      if (klaviyoKey && (frame == null ? void 0 : frame.existingSliceData)) {
-        setSliceData(frame.existingSliceData);
-        setEditedSlices(frame.existingSliceData.slices);
+      var _a;
+      if (!klaviyoKey) return;
+      const combined = [];
+      for (const f4 of readyFrames) {
+        for (const s3 of f4.existingSliceData.slices) {
+          combined.push(__spreadProps(__spreadValues({}, s3), { _frameId: f4.id, _frameName: (_a = f4.existingSliceData.frame_name) != null ? _a : f4.name }));
+        }
       }
-    }, [frame, klaviyoKey]);
+      setEditedSlices(combined);
+    }, [klaviyoKey, frames.map((f4) => f4.id + (f4.existingSliceData ? "1" : "0")).join(",")]);
     const handleSaveKey = q2(() => {
       const trimmed = keyInput.trim();
       if (!trimmed.startsWith("pk_")) {
@@ -1521,7 +1545,7 @@
       setStep("key_setup");
     }, []);
     const handlePreviewHtml = q2(() => __async(null, null, function* () {
-      if (!sliceData) return;
+      if (editedSlices.length === 0) return;
       try {
         const res = yield fetch(`${BACKEND_URL2}/api/klaviyo/preview`, {
           method: "POST",
@@ -1533,24 +1557,23 @@
       } catch (e3) {
         setError("Failed to generate preview.");
       }
-    }), [sliceData, editedSlices]);
+    }), [editedSlices]);
     const handlePush = q2(() => __async(null, null, function* () {
       if (!klaviyoKey || !klaviyoConfig) return;
       setError(null);
       setStep("pushing");
       try {
-        let slicesForPush = editedSlices;
-        if (sliceData == null ? void 0 : sliceData.frame_id) {
-          const imageMap = yield fetchFigmaSliceImages(sliceData.frame_id);
-          if (imageMap.size > 0) {
-            slicesForPush = editedSlices.map((s3) => {
-              var _a2;
-              return __spreadProps(__spreadValues({}, s3), {
-                image_base64: (_a2 = imageMap.get(s3.name)) != null ? _a2 : void 0
-              });
-            });
+        const imageMap = /* @__PURE__ */ new Map();
+        for (const f4 of readyFrames) {
+          const frameMap = yield fetchFigmaSliceImages(f4.id);
+          for (const [name, b64] of frameMap) {
+            imageMap.set(`${f4.id}::${name}`, b64);
           }
         }
+        const slicesForPush = editedSlices.map((s3) => {
+          const freshImage = imageMap.get(`${s3._frameId}::${s3.name}`);
+          return freshImage ? __spreadProps(__spreadValues({}, s3), { image_base64: freshImage }) : s3;
+        });
         const res = yield fetch(`${BACKEND_URL2}/api/klaviyo/push`, {
           method: "POST",
           headers: {
@@ -1576,7 +1599,7 @@ ${JSON.stringify(errData.detail, null, 2)}` : "";
         setError(msg);
         setStep("configure");
       }
-    }), [klaviyoKey, editedSlices, klaviyoConfig]);
+    }), [klaviyoKey, editedSlices, klaviyoConfig, readyFrames]);
     const updateSlice = q2((id, field, value) => {
       setEditedSlices((prev) => prev.map((s3) => s3.id === id ? __spreadProps(__spreadValues({}, s3), { [field]: value }) : s3));
     }, []);
@@ -1630,15 +1653,14 @@ ${JSON.stringify(errData.detail, null, 2)}` : "";
             /* @__PURE__ */ u3("button", { class: "btn-link", onClick: handleChangeKey, children: "Change key" })
           ] })
         ] }),
-        !(frame == null ? void 0 : frame.existingSliceData) ? /* @__PURE__ */ u3("div", { class: "warning-box", children: "\u26A0 Select a Figma frame that has been sliced by the Design team." }) : /* @__PURE__ */ u3(k, { children: [
+        readyFrames.length === 0 ? /* @__PURE__ */ u3("div", { class: "warning-box", children: "\u26A0 No sliced frames found. Have the Design team slice frames first." }) : /* @__PURE__ */ u3(k, { children: [
           /* @__PURE__ */ u3("div", { class: "design-summary", children: [
             /* @__PURE__ */ u3("span", { children: "\u{1F4E7}" }),
             /* @__PURE__ */ u3("div", { children: [
-              /* @__PURE__ */ u3("strong", { children: (_a = sliceData == null ? void 0 : sliceData.frame_name) != null ? _a : frame.name }),
+              /* @__PURE__ */ u3("strong", { children: readyFrames.length === 1 ? readyFrames[0].name : `${readyFrames.length} frames` }),
               /* @__PURE__ */ u3("span", { children: [
                 editedSlices.length,
-                " slices \u2022 ",
-                formatDate((_b = sliceData == null ? void 0 : sliceData.created_at) != null ? _b : "")
+                " slices total"
               ] })
             ] })
           ] }),
@@ -1650,30 +1672,48 @@ ${JSON.stringify(errData.detail, null, 2)}` : "";
               /* @__PURE__ */ u3("th", { children: "Alt Text" }),
               /* @__PURE__ */ u3("th", { children: "Link" })
             ] }) }),
-            /* @__PURE__ */ u3("tbody", { children: editedSlices.map((slice, i3) => {
-              var _a2;
-              return /* @__PURE__ */ u3("tr", { children: [
-                /* @__PURE__ */ u3("td", { children: i3 + 1 }),
-                /* @__PURE__ */ u3("td", { children: slice.name }),
-                /* @__PURE__ */ u3("td", { children: /* @__PURE__ */ u3(
-                  "input",
-                  {
-                    type: "text",
-                    value: slice.alt_text,
-                    onInput: (e3) => updateSlice(slice.id, "alt_text", e3.target.value)
-                  }
-                ) }),
-                /* @__PURE__ */ u3("td", { children: /* @__PURE__ */ u3(
-                  "input",
-                  {
-                    type: "text",
-                    value: (_a2 = slice.link) != null ? _a2 : "",
-                    placeholder: "https://...",
-                    onInput: (e3) => updateSlice(slice.id, "link", e3.target.value)
-                  }
-                ) })
-              ] }, slice.id);
-            }) })
+            /* @__PURE__ */ u3("tbody", { children: (() => {
+              var _a;
+              const rows = [];
+              let globalIdx = 0;
+              let lastFrameName = "";
+              for (const slice of editedSlices) {
+                if (readyFrames.length > 1 && slice._frameName !== lastFrameName) {
+                  lastFrameName = slice._frameName;
+                  rows.push(
+                    /* @__PURE__ */ u3("tr", { class: "frame-divider-row", children: /* @__PURE__ */ u3("td", { colSpan: 4, children: [
+                      "\u{1F4C4} ",
+                      slice._frameName
+                    ] }) }, `frame-${slice._frameId}`)
+                  );
+                }
+                globalIdx++;
+                rows.push(
+                  /* @__PURE__ */ u3("tr", { children: [
+                    /* @__PURE__ */ u3("td", { children: globalIdx }),
+                    /* @__PURE__ */ u3("td", { children: slice.name }),
+                    /* @__PURE__ */ u3("td", { children: /* @__PURE__ */ u3(
+                      "input",
+                      {
+                        type: "text",
+                        value: slice.alt_text,
+                        onInput: (e3) => updateSlice(slice.id, "alt_text", e3.target.value)
+                      }
+                    ) }),
+                    /* @__PURE__ */ u3("td", { children: /* @__PURE__ */ u3(
+                      "input",
+                      {
+                        type: "text",
+                        value: (_a = slice.link) != null ? _a : "",
+                        placeholder: "https://...",
+                        onInput: (e3) => updateSlice(slice.id, "link", e3.target.value)
+                      }
+                    ) })
+                  ] }, slice.id)
+                );
+              }
+              return rows;
+            })() })
           ] }),
           /* @__PURE__ */ u3("div", { class: "section-title", children: "Push Destination" }),
           /* @__PURE__ */ u3(
@@ -1724,10 +1764,6 @@ ${JSON.stringify(errData.detail, null, 2)}` : "";
       ] })
     ] });
   }
-  function formatDate(iso) {
-    if (!iso) return "";
-    return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  }
   function fetchFigmaSliceImages(frameId) {
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
@@ -1754,14 +1790,13 @@ ${JSON.stringify(errData.detail, null, 2)}` : "";
 
   // src/ui.tsx
   function App() {
-    var _a;
     const [mode, setMode] = d2("designer");
     const [frames, setFrames] = d2([]);
     const [noFrameWarning, setNoFrameWarning] = d2(false);
     y2(() => {
       window.onmessage = (event) => {
-        var _a2;
-        const msg = (_a2 = event.data) == null ? void 0 : _a2.pluginMessage;
+        var _a;
+        const msg = (_a = event.data) == null ? void 0 : _a.pluginMessage;
         if (!msg) return;
         switch (msg.type) {
           case "ALL_FRAMES_LOADED":
@@ -1806,7 +1841,7 @@ ${JSON.stringify(errData.detail, null, 2)}` : "";
           }
         )
       ] }),
-      /* @__PURE__ */ u3("main", { class: "plugin-content", children: mode === "designer" ? /* @__PURE__ */ u3(DesignerMode, { frames }) : /* @__PURE__ */ u3(TechMode, { frame: (_a = frames[0]) != null ? _a : null }) })
+      /* @__PURE__ */ u3("main", { class: "plugin-content", children: mode === "designer" ? /* @__PURE__ */ u3(DesignerMode, { frames }) : /* @__PURE__ */ u3(TechMode, { frames }) })
     ] });
   }
   J(/* @__PURE__ */ u3(App, {}), document.getElementById("root"));

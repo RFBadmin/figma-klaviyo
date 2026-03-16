@@ -102,6 +102,14 @@ export function DesignerMode({ frames }: Props) {
     }).catch(() => {});
   }, [frame?.id, state.step, state.imageBase64]);
 
+  // Auto-detect Figma native slice nodes when frame becomes active
+  useEffect(() => {
+    if (!frame || !frame.hasFigmaSlices) return;
+    if (frame.existingSliceData) return; // saved plugin data takes priority
+    if (state.step !== 'select') return; // already processing
+    sliceFrame(frame);
+  }, [frame?.id, frame?.hasFigmaSlices]);
+
   // ─── Actions ──────────────────────────────────────────────────────────────
 
   const sliceFrame = useCallback(async (targetFrame: FrameInfo, forceAI = false) => {
@@ -173,6 +181,20 @@ export function DesignerMode({ frames }: Props) {
   const sliceAllChecked = useCallback(async () => {
     const targets = frames.filter(f => checkedIds.has(f.id));
     if (targets.length === 0) return;
+
+    // Warn if any target frames already have slice data
+    const alreadySliced = targets.filter(f =>
+      (frameStates[f.id]?.step && frameStates[f.id].step !== 'select') || f.existingSliceData
+    );
+    if (alreadySliced.length > 0) {
+      const names = alreadySliced.map(f => f.name).join(', ');
+      const plural = alreadySliced.length > 1;
+      const ok = window.confirm(
+        `"${names}" ${plural ? 'already have' : 'already has'} slices. Re-slicing will overwrite them. Continue?`
+      );
+      if (!ok) return;
+    }
+
     setBatchProgress({ current: 0, total: targets.length });
     for (let i = 0; i < targets.length; i++) {
       if (stopRef.current) break;

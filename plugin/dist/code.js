@@ -111,7 +111,8 @@
           name: frame.name,
           width: frame.width,
           height: frame.height,
-          existingSliceData: loadSliceData(frame.id)
+          existingSliceData: loadSliceData(frame.id),
+          hasFigmaSlices: frameHasFigmaSlices(frame)
         }));
         figma.ui.postMessage({ type: "FRAMES_SELECTED", data });
       } else {
@@ -128,7 +129,8 @@
             name: frame.name,
             width: frame.width,
             height: frame.height,
-            existingSliceData: loadSliceData(frame.id)
+            existingSliceData: loadSliceData(frame.id),
+            hasFigmaSlices: frameHasFigmaSlices(frame)
           }));
           figma.ui.postMessage({ type: "FRAMES_SELECTED", data });
         } else {
@@ -311,6 +313,9 @@
         }
         return bands;
       }
+      function frameHasFigmaSlices(frame) {
+        return frame.children.some((n) => n.type === "SLICE" && n.visible);
+      }
       function notifyAllPageFrames() {
         const frames = getAllEmailFrames();
         const data = frames.map((frame) => ({
@@ -318,7 +323,8 @@
           name: frame.name,
           width: frame.width,
           height: frame.height,
-          existingSliceData: loadSliceData(frame.id)
+          existingSliceData: loadSliceData(frame.id),
+          hasFigmaSlices: frameHasFigmaSlices(frame)
         }));
         figma.ui.postMessage({ type: "ALL_FRAMES_LOADED", data });
       }
