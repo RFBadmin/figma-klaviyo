@@ -49,7 +49,7 @@ class KlaviyoClient:
                 "attributes": {
                     "name": name,
                     "html": html_content,
-                    "editor_type": "CODE"
+                    "editor_type": "USER_DRAGGABLE"
                 }
             }
         }

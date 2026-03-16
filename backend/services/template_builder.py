@@ -15,15 +15,17 @@ def build_email_html(slices: List[dict]) -> str:
 
         slice_rows += f"""
         <tr>
-          <td align="center" style="padding: 0;">
-            <a href="{link}" target="_blank" style="display: block;">
-              <img
-                src="{image_url}"
-                alt="{_escape_html(alt_text)}"
-                width="600"
-                style="display: block; width: 100%; max-width: 600px; height: auto; border: 0;"
-              />
-            </a>
+          <td align="center" data-klaviyo-region="true" data-klaviyo-region-width-pixels="600" style="padding: 0;">
+            <div class="klaviyo-block klaviyo-image-block">
+              <a href="{link}" target="_blank" style="display: block;">
+                <img
+                  src="{image_url}"
+                  alt="{_escape_html(alt_text)}"
+                  width="600"
+                  style="display: block; width: 100%; max-width: 600px; height: auto; border: 0;"
+                />
+              </a>
+            </div>
           </td>
         </tr>"""
 
