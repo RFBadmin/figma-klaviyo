@@ -43,6 +43,9 @@ export function DesignerMode({ frames }: Props) {
 
   const stopRef = useRef(false);
   const fetchControllerRef = useRef<AbortController | null>(null);
+  // Tracks a manual frame selection made by the user during an active batch, so
+  // the batch loop never overrides it.
+  const userPickedRef = useRef<string | null>(null);
 
   const cancelSlice = useCallback(() => {
     stopRef.current = true;
@@ -212,18 +215,24 @@ export function DesignerMode({ frames }: Props) {
       if (!ok) return;
     }
 
+    // Reset user-pick tracker and show first target at batch start
+    userPickedRef.current = null;
+    setActiveFrameId(targets[0].id);
     setBatchProgress({ current: 0, total: targets.length });
+
     let lastProcessed = targets[0].id;
     for (let i = 0; i < targets.length; i++) {
       if (stopRef.current) break;
       setBatchProgress({ current: i, total: targets.length });
-      setActiveFrameId(targets[i].id);
+      // Do NOT force-switch the active frame here — the user may have clicked
+      // a different frame to preview it while the batch runs in the background.
       await sliceFrame(targets[i]);
       lastProcessed = targets[i].id;
     }
     setBatchProgress(null);
-    // Stay on the last frame that was actually processed
-    if (!stopRef.current) setActiveFrameId(lastProcessed);
+    // Navigate to the user's manual pick (if any) or the last processed frame
+    if (!stopRef.current) setActiveFrameId(userPickedRef.current ?? lastProcessed);
+    userPickedRef.current = null;
     stopRef.current = false;
   }, [checkedIds, frames, frameStates, sliceFrame]);
 
@@ -390,7 +399,12 @@ export function DesignerMode({ frames }: Props) {
               <span
                 class="frame-check-name"
                 title={f.name}
-                onClick={() => setActiveFrameId(f.id)}
+                onClick={() => {
+                  setActiveFrameId(f.id);
+                  // If a batch is running, record this as a deliberate user pick
+                  // so the batch loop won't override it on the next iteration.
+                  if (isBatching) userPickedRef.current = f.id;
+                }}
                 style={{ cursor: 'pointer', flex: 1 }}
               >{f.name}</span>
               <span class="frame-check-dims">{f.width}×{f.height}</span>
