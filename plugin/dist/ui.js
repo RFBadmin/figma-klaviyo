@@ -1298,6 +1298,8 @@
       campaignName: "",
       subject: "",
       previewText: "",
+      fromEmail: "",
+      fromLabel: "",
       listId: "",
       sendTime: void 0
     });
@@ -1380,6 +1382,30 @@
               value: config.campaignName,
               placeholder: "e.g. Summer Sale - June 2026",
               onInput: (e3) => update("campaignName", e3.target.value)
+            }
+          )
+        ] }),
+        /* @__PURE__ */ u3("div", { class: "form-field", children: [
+          /* @__PURE__ */ u3("label", { children: "From Email" }),
+          /* @__PURE__ */ u3(
+            "input",
+            {
+              type: "email",
+              value: config.fromEmail,
+              placeholder: "e.g. store@mycompany.com",
+              onInput: (e3) => update("fromEmail", e3.target.value)
+            }
+          )
+        ] }),
+        /* @__PURE__ */ u3("div", { class: "form-field", children: [
+          /* @__PURE__ */ u3("label", { children: "From Name" }),
+          /* @__PURE__ */ u3(
+            "input",
+            {
+              type: "text",
+              value: config.fromLabel,
+              placeholder: "e.g. My Company",
+              onInput: (e3) => update("fromLabel", e3.target.value)
             }
           )
         ] }),

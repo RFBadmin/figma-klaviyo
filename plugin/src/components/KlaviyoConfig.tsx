@@ -17,6 +17,8 @@ export function KlaviyoConfig({ apiKey, backendUrl, onChange }: Props) {
     campaignName: '',
     subject: '',
     previewText: '',
+    fromEmail: '',
+    fromLabel: '',
     listId: '',
     sendTime: undefined
   });
@@ -95,6 +97,26 @@ export function KlaviyoConfig({ apiKey, backendUrl, onChange }: Props) {
               value={config.campaignName}
               placeholder="e.g. Summer Sale - June 2026"
               onInput={(e) => update('campaignName', (e.target as HTMLInputElement).value)}
+            />
+          </div>
+
+          <div class="form-field">
+            <label>From Email</label>
+            <input
+              type="email"
+              value={config.fromEmail}
+              placeholder="e.g. store@mycompany.com"
+              onInput={(e) => update('fromEmail', (e.target as HTMLInputElement).value)}
+            />
+          </div>
+
+          <div class="form-field">
+            <label>From Name</label>
+            <input
+              type="text"
+              value={config.fromLabel}
+              placeholder="e.g. My Company"
+              onInput={(e) => update('fromLabel', (e.target as HTMLInputElement).value)}
             />
           </div>
 

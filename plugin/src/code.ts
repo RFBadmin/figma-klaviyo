@@ -100,7 +100,8 @@ case 'EXPORT_FRAME': {
         const figmaSlices: Array<{ name: string; y_start: number; y_end: number; imageBase64: string }> = [];
         for (let i = 0; i < sliceNodes.length; i++) {
           const node = sliceNodes[i];
-          const bbox = node.absoluteBoundingBox!;
+          const bbox = node.absoluteBoundingBox;
+          if (!bbox) continue;
           const y_start = Math.max(0, Math.round(bbox.y - frameAbsY));
           const y_end = Math.min(frameNode.height, Math.round(bbox.y - frameAbsY + bbox.height));
           if (y_end <= y_start) continue;
@@ -138,7 +139,8 @@ case 'EXPORT_FRAME': {
         const exportedSlices: Array<{ name: string; y_start: number; y_end: number; imageBase64: string }> = [];
         for (const node of createdNodes) {
           const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: 2 } });
-          const bbox = node.absoluteBoundingBox!;
+          const bbox = node.absoluteBoundingBox;
+          if (!bbox) continue;
           const y_start = Math.max(0, Math.round(bbox.y - absY));
           const y_end = Math.min(frameNode.height, Math.round(bbox.y - absY + bbox.height));
           exportedSlices.push({ name: node.name, y_start, y_end, imageBase64: uint8ArrayToBase64(bytes) });

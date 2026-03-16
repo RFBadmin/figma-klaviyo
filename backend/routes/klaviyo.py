@@ -111,6 +111,8 @@ def push():
                 name=config.get('campaignName', template_name),
                 subject=config.get('subject', ''),
                 preview_text=config.get('previewText', ''),
+                from_email=config.get('fromEmail', ''),
+                from_label=config.get('fromLabel', ''),
                 list_id=list_id,
                 template_id=template_id,
                 send_time=config.get('sendTime')

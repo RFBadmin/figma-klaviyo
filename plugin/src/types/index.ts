@@ -104,6 +104,8 @@ export interface KlaviyoCampaignConfig {
   campaignName: string;
   subject: string;
   previewText: string;
+  fromEmail: string;
+  fromLabel: string;
   listId: string;
   sendTime?: string;
 }

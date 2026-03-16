@@ -65,6 +65,8 @@ class KlaviyoClient:
         name: str,
         subject: str,
         preview_text: str,
+        from_email: str,
+        from_label: str,
         list_id: str,
         template_id: str,
         send_time: Optional[str] = None
@@ -99,7 +101,9 @@ class KlaviyoClient:
                                     "label": name,
                                     "content": {
                                         "subject": subject,
-                                        "preview_text": preview_text
+                                        "preview_text": preview_text,
+                                        **({"from_email": from_email} if from_email else {}),
+                                        **({"from_label": from_label} if from_label else {})
                                     }
                                 }
                             }

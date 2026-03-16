@@ -178,6 +178,7 @@
               for (let i = 0; i < sliceNodes.length; i++) {
                 const node = sliceNodes[i];
                 const bbox = node.absoluteBoundingBox;
+                if (!bbox) continue;
                 const y_start = Math.max(0, Math.round(bbox.y - frameAbsY));
                 const y_end = Math.min(frameNode.height, Math.round(bbox.y - frameAbsY + bbox.height));
                 if (y_end <= y_start) continue;
@@ -207,6 +208,7 @@
               for (const node of createdNodes) {
                 const bytes = yield node.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: 2 } });
                 const bbox = node.absoluteBoundingBox;
+                if (!bbox) continue;
                 const y_start = Math.max(0, Math.round(bbox.y - absY));
                 const y_end = Math.min(frameNode.height, Math.round(bbox.y - absY + bbox.height));
                 exportedSlices.push({ name: node.name, y_start, y_end, imageBase64: uint8ArrayToBase64(bytes) });
