@@ -1,6 +1,6 @@
 /// <reference types="@figma/plugin-typings" />
 
-import { saveSliceData, loadSliceData } from './utils/metadata';
+import { saveSliceData, loadSliceData, clearSliceData } from './utils/metadata';
 import { uint8ArrayToBase64 } from './utils/export';
 import { getSelectedEmailFrames, getAllEmailFrames } from './utils/figma-api';
 import type { UIMessage } from './types';
@@ -8,6 +8,18 @@ import type { UIMessage } from './types';
 // ─── Plugin Init ──────────────────────────────────────────────────────────────
 
 figma.showUI(__html__, { width: 400, height: 600, title: 'Figma → Klaviyo' });
+
+// ─── Startup cleanup ─────────────────────────────────────────────────────────
+// If slice nodes were deleted from the canvas while the plugin was closed,
+// the pluginData ('klaviyo_slices') still sits on the frame node.
+// Clear it now so the UI doesn't show stale "sliced" state.
+for (const frame of getAllEmailFrames()) {
+  const hasData = loadSliceData(frame.id);
+  const hasNodes = frameHasFigmaSlices(frame);
+  if (hasData && !hasNodes) {
+    clearSliceData(frame.id);
+  }
+}
 
 // Notify UI of all email frames on the current page on launch
 // If frames are already selected, show only those; otherwise show all
@@ -51,16 +63,37 @@ figma.on('selectionchange', () => {
 });
 
 // Re-notify UI when slice nodes are added or removed from the canvas.
-// Debounced so rapid deletions don't flood the UI.
+// When slice nodes are deleted, also clear the persisted pluginData so stale
+// slice definitions don't keep reappearing.
+// Tracks which frames had slices so we can detect true→false transitions.
+const frameSliceState = new Map<string, boolean>();
+// Initialise from all frames on current page
+for (const f of getAllEmailFrames()) {
+  frameSliceState.set(f.id, frameHasFigmaSlices(f));
+}
+
 let docChangeTimer: ReturnType<typeof setTimeout> | null = null;
 figma.on('documentchange', (event) => {
-  const affectsSlices = event.documentChanges.some(
+  const affectsNodes = event.documentChanges.some(
     c => c.type === 'DELETE' || c.type === 'CREATE' || c.type === 'PROPERTY_CHANGE'
   );
-  if (!affectsSlices) return;
+  if (!affectsNodes) return;
   if (docChangeTimer) clearTimeout(docChangeTimer);
   docChangeTimer = setTimeout(() => {
     docChangeTimer = null;
+
+    // Check every email frame — if it USED to have slices but no longer does,
+    // clear the persisted pluginData so it won't reload as "sliced" next time.
+    for (const frame of getAllEmailFrames()) {
+      const hadSlices = frameSliceState.get(frame.id) ?? false;
+      const hasSlices = frameHasFigmaSlices(frame);
+      if (hadSlices && !hasSlices) {
+        clearSliceData(frame.id);
+      }
+      frameSliceState.set(frame.id, hasSlices);
+    }
+
+    // Re-send full frame list to UI
     const sel = getSelectedEmailFrames();
     if (sel.length > 0) {
       const data = sel.map(frame => ({

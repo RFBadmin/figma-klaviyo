@@ -45,8 +45,6 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
 
   const stopRef = useRef(false);
   const fetchControllerRef = useRef<AbortController | null>(null);
-  // Tracks previous hasFigmaSlices per frame so we can detect the true→false transition
-  const prevHasFigmaSlicesRef = useRef<Record<string, boolean>>({});
   // Tracks a manual frame selection made by the user during an active batch, so
   // the batch loop never overrides it.
   const userPickedRef = useRef<string | null>(null);
@@ -90,33 +88,23 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
       const next = { ...prev };
       frames.forEach(f => {
         const existing = next[f.id];
-        const prevHasFigma = prevHasFigmaSlicesRef.current[f.id] ?? f.hasFigmaSlices ?? false;
-        const slicesJustDeleted = prevHasFigma === true && !f.hasFigmaSlices;
 
-        // Figma slice nodes were deleted from canvas (true → false transition).
-        // Reset regardless of how the current state was established.
-        if (slicesJustDeleted && existing && existing.step !== 'select' && existing.step !== 'analyzing') {
+        // If this frame had state but existingSliceData is now null and
+        // hasFigmaSlices is false, it means slice nodes were deleted from the
+        // canvas and code.ts cleared the pluginData — reset to fresh state.
+        if (existing && existing.step !== 'select' && existing.step !== 'analyzing'
+            && !f.hasFigmaSlices && !f.existingSliceData) {
           next[f.id] = defaultState();
           return;
         }
 
-        // On first load: restore saved slice data, but skip if Figma nodes are gone
+        // On first load: restore saved slice data into preview
         if (f.existingSliceData && !existing) {
-          const fromFigmaNodes = f.existingSliceData.source === 'figma_nodes';
-          if (fromFigmaNodes && !f.hasFigmaSlices) {
-            // Nodes were deleted — start fresh
-            return;
-          }
           next[f.id] = { ...defaultState(), slices: f.existingSliceData.slices, step: 'preview' };
         }
       });
       return next;
     });
-
-    // Remember current hasFigmaSlices so next run can detect transitions
-    prevHasFigmaSlicesRef.current = Object.fromEntries(
-      frames.map(f => [f.id, f.hasFigmaSlices ?? false])
-    );
   }, [frames.map(f => `${f.id}:${f.hasFigmaSlices ? '1' : '0'}`).join(',')]);
 
   // Active frame object

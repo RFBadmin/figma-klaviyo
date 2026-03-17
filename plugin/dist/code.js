@@ -56,6 +56,11 @@
     const data = frame.getPluginData("klaviyo_slices");
     return data ? JSON.parse(data) : null;
   }
+  function clearSliceData(frameId) {
+    const frame = figma.getNodeById(frameId);
+    if (!frame) return;
+    frame.setPluginData("klaviyo_slices", "");
+  }
   var init_metadata = __esm({
     "src/utils/metadata.ts"() {
       "use strict";
@@ -104,6 +109,13 @@
       init_export();
       init_figma_api();
       figma.showUI(__html__, { width: 400, height: 600, title: "Figma \u2192 Klaviyo" });
+      for (const frame of getAllEmailFrames()) {
+        const hasData = loadSliceData(frame.id);
+        const hasNodes = frameHasFigmaSlices(frame);
+        if (hasData && !hasNodes) {
+          clearSliceData(frame.id);
+        }
+      }
       var initialSelected = getSelectedEmailFrames();
       if (initialSelected.length > 0) {
         const data = initialSelected.map((frame) => ({
@@ -137,15 +149,28 @@
           notifyAllPageFrames();
         }
       });
+      var frameSliceState = /* @__PURE__ */ new Map();
+      for (const f of getAllEmailFrames()) {
+        frameSliceState.set(f.id, frameHasFigmaSlices(f));
+      }
       var docChangeTimer = null;
       figma.on("documentchange", (event) => {
-        const affectsSlices = event.documentChanges.some(
+        const affectsNodes = event.documentChanges.some(
           (c) => c.type === "DELETE" || c.type === "CREATE" || c.type === "PROPERTY_CHANGE"
         );
-        if (!affectsSlices) return;
+        if (!affectsNodes) return;
         if (docChangeTimer) clearTimeout(docChangeTimer);
         docChangeTimer = setTimeout(() => {
+          var _a;
           docChangeTimer = null;
+          for (const frame of getAllEmailFrames()) {
+            const hadSlices = (_a = frameSliceState.get(frame.id)) != null ? _a : false;
+            const hasSlices = frameHasFigmaSlices(frame);
+            if (hadSlices && !hasSlices) {
+              clearSliceData(frame.id);
+            }
+            frameSliceState.set(frame.id, hasSlices);
+          }
           const sel = getSelectedEmailFrames();
           if (sel.length > 0) {
             const data = sel.map((frame) => ({
