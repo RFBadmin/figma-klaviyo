@@ -669,6 +669,7 @@
     const [compressFormat, setCompressFormat] = d2("auto");
     const stopRef = A2(false);
     const fetchControllerRef = A2(null);
+    const prevHasFigmaSlicesRef = A2({});
     const userPickedRef = A2(null);
     const cancelSlice = q2(() => {
       var _a2;
@@ -703,14 +704,13 @@
       setFrameStates((prev) => {
         const next = __spreadValues({}, prev);
         frames.forEach((f4) => {
-          var _a2;
+          var _a2, _b2;
           const existing = next[f4.id];
-          if (!f4.hasFigmaSlices && existing && existing.step !== "select") {
-            const usedFigmaNodes = existing.figmaSliceImages != null || ((_a2 = f4.existingSliceData) == null ? void 0 : _a2.source) === "figma_nodes";
-            if (usedFigmaNodes) {
-              next[f4.id] = defaultState();
-              return;
-            }
+          const prevHasFigma = (_b2 = (_a2 = prevHasFigmaSlicesRef.current[f4.id]) != null ? _a2 : f4.hasFigmaSlices) != null ? _b2 : false;
+          const slicesJustDeleted = prevHasFigma === true && !f4.hasFigmaSlices;
+          if (slicesJustDeleted && existing && existing.step !== "select" && existing.step !== "analyzing") {
+            next[f4.id] = defaultState();
+            return;
           }
           if (f4.existingSliceData && !existing) {
             const fromFigmaNodes = f4.existingSliceData.source === "figma_nodes";
@@ -722,6 +722,12 @@
         });
         return next;
       });
+      prevHasFigmaSlicesRef.current = Object.fromEntries(
+        frames.map((f4) => {
+          var _a2;
+          return [f4.id, (_a2 = f4.hasFigmaSlices) != null ? _a2 : false];
+        })
+      );
     }, [frames.map((f4) => `${f4.id}:${f4.hasFigmaSlices ? "1" : "0"}`).join(",")]);
     const frame = (_b = (_a = frames.find((f4) => f4.id === activeFrameId)) != null ? _a : frames[0]) != null ? _b : null;
     const state = frame ? (_c = frameStates[frame.id]) != null ? _c : defaultState() : defaultState();
