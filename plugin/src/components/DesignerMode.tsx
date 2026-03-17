@@ -332,18 +332,48 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
     await compressAndSave(targetFrame, stateForCompress);
   }, [applyToFrame, compressAndSave]);
 
-  const applyAndCompressAll = useCallback(async () => {
-    const targets = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'preview');
-    if (targets.length === 0) return;
-
-    setApplyBatchProgress({ current: 0, total: targets.length });
-    for (let i = 0; i < targets.length; i++) {
-      setApplyBatchProgress({ current: i, total: targets.length });
-      const targetState = frameStates[targets[i].id] ?? defaultState();
-      await applyThenCompress(targets[i], targetState);
+  const applyCompressSaveAll = useCallback(async () => {
+    // Step 1: Apply + compress all frames in 'preview'
+    const previewTargets = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'preview');
+    if (previewTargets.length > 0) {
+      setApplyBatchProgress({ current: 0, total: previewTargets.length });
+      for (let i = 0; i < previewTargets.length; i++) {
+        setApplyBatchProgress({ current: i, total: previewTargets.length });
+        const targetState = frameStates[previewTargets[i].id] ?? defaultState();
+        await applyThenCompress(previewTargets[i], targetState);
+      }
+      setApplyBatchProgress(null);
     }
-    setApplyBatchProgress(null);
-  }, [frames, frameStates, applyThenCompress]);
+
+    // Step 2: Save all frames now in 'results' (including ones just compressed above)
+    // Re-read frameStates via setter to get the latest values after async ops
+    setFrameStates(prev => {
+      const resultsTargets = frames.filter(f => (prev[f.id]?.step ?? 'select') === 'results');
+      resultsTargets.forEach(f => {
+        const currentState = prev[f.id] ?? defaultState();
+        const updatedSlices = currentState.slices.map(s => {
+          const compressed = currentState.compressedSlices.find(c => c.id === s.id);
+          return compressed ? { ...s, compressed_url: compressed.temp_url } : s;
+        });
+        const sliceData: SliceData = {
+          version: '1.0.0',
+          created_by: 'designer',
+          created_at: new Date().toISOString(),
+          frame_id: f.id,
+          frame_name: f.name,
+          slices: updatedSlices,
+          status: 'ready',
+          source: currentState.figmaSliceImages !== null ? 'figma_nodes' : 'ai'
+        };
+        parent.postMessage({ pluginMessage: { type: 'SAVE_SLICE_DATA', frameId: f.id, data: sliceData } }, '*');
+      });
+      const next = { ...prev };
+      resultsTargets.forEach(f => { next[f.id] = { ...next[f.id], step: 'saved' }; });
+      return next;
+    });
+
+    setTimeout(() => onSwitchToTech(), 300);
+  }, [frames, frameStates, applyThenCompress, onSwitchToTech]);
 
   const saveDesign = useCallback((targetFrame: FrameInfo, currentState: FrameState) => {
     const updatedSlices = currentState.slices.map(s => {
@@ -369,12 +399,6 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
     patchState(targetFrame.id, { step: 'saved' });
   }, [patchState]);
 
-  const saveAllResults = useCallback(() => {
-    const targets = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'results');
-    if (targets.length === 0) return;
-    targets.forEach(f => saveDesign(f, frameStates[f.id] ?? defaultState()));
-    setTimeout(() => onSwitchToTech(), 300);
-  }, [frames, frameStates, saveDesign, onSwitchToTech]);
 
   // ─── Render ─────────────────────────────────────────────────────────────────
 
@@ -394,6 +418,7 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
   ).length;
   const pendingCount = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'preview').length;
   const resultsCount = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'results').length;
+  const readyToPublishCount = pendingCount + resultsCount;
 
   return (
     <div class="designer-mode">
@@ -484,20 +509,11 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
         </div>
       )}
 
-      {/* Apply + compress all in one shot */}
-      {pendingCount > 1 && !isBatching && !isApplying && (
+      {/* Combined: Apply + Compress + Save + Push to Klaviyo */}
+      {readyToPublishCount >= 1 && !isBatching && !isApplying && (
         <div class="action-row" style={{ marginBottom: '6px' }}>
-          <button class="btn-secondary" style={{ flex: 1 }} onClick={applyAndCompressAll}>
-            ✦ Apply & Compress All {pendingCount} Frames
-          </button>
-        </div>
-      )}
-
-      {/* Save all + auto-switch to Tech tab */}
-      {resultsCount >= 1 && !isBatching && !isApplying && (
-        <div class="action-row" style={{ marginBottom: '6px' }}>
-          <button class="btn-success" style={{ flex: 1 }} onClick={saveAllResults}>
-            ✦ Save {resultsCount > 1 ? `All ${resultsCount} Frames` : 'Frame'} & Push to Klaviyo →
+          <button class="btn-success" style={{ flex: 1 }} onClick={applyCompressSaveAll}>
+            ✦ Apply, Compress & Push {readyToPublishCount > 1 ? `All ${readyToPublishCount} Frames` : 'Frame'} to Klaviyo →
           </button>
         </div>
       )}

@@ -902,21 +902,53 @@
       }
       yield compressAndSave(targetFrame, stateForCompress);
     }), [applyToFrame, compressAndSave]);
-    const applyAndCompressAll = q2(() => __async(null, null, function* () {
+    const applyCompressSaveAll = q2(() => __async(null, null, function* () {
       var _a2;
-      const targets = frames.filter((f4) => {
+      const previewTargets = frames.filter((f4) => {
         var _a3, _b2;
         return ((_b2 = (_a3 = frameStates[f4.id]) == null ? void 0 : _a3.step) != null ? _b2 : "select") === "preview";
       });
-      if (targets.length === 0) return;
-      setApplyBatchProgress({ current: 0, total: targets.length });
-      for (let i3 = 0; i3 < targets.length; i3++) {
-        setApplyBatchProgress({ current: i3, total: targets.length });
-        const targetState = (_a2 = frameStates[targets[i3].id]) != null ? _a2 : defaultState();
-        yield applyThenCompress(targets[i3], targetState);
+      if (previewTargets.length > 0) {
+        setApplyBatchProgress({ current: 0, total: previewTargets.length });
+        for (let i3 = 0; i3 < previewTargets.length; i3++) {
+          setApplyBatchProgress({ current: i3, total: previewTargets.length });
+          const targetState = (_a2 = frameStates[previewTargets[i3].id]) != null ? _a2 : defaultState();
+          yield applyThenCompress(previewTargets[i3], targetState);
+        }
+        setApplyBatchProgress(null);
       }
-      setApplyBatchProgress(null);
-    }), [frames, frameStates, applyThenCompress]);
+      setFrameStates((prev) => {
+        const resultsTargets = frames.filter((f4) => {
+          var _a3, _b2;
+          return ((_b2 = (_a3 = prev[f4.id]) == null ? void 0 : _a3.step) != null ? _b2 : "select") === "results";
+        });
+        resultsTargets.forEach((f4) => {
+          var _a3;
+          const currentState = (_a3 = prev[f4.id]) != null ? _a3 : defaultState();
+          const updatedSlices = currentState.slices.map((s3) => {
+            const compressed = currentState.compressedSlices.find((c3) => c3.id === s3.id);
+            return compressed ? __spreadProps(__spreadValues({}, s3), { compressed_url: compressed.temp_url }) : s3;
+          });
+          const sliceData = {
+            version: "1.0.0",
+            created_by: "designer",
+            created_at: (/* @__PURE__ */ new Date()).toISOString(),
+            frame_id: f4.id,
+            frame_name: f4.name,
+            slices: updatedSlices,
+            status: "ready",
+            source: currentState.figmaSliceImages !== null ? "figma_nodes" : "ai"
+          };
+          parent.postMessage({ pluginMessage: { type: "SAVE_SLICE_DATA", frameId: f4.id, data: sliceData } }, "*");
+        });
+        const next = __spreadValues({}, prev);
+        resultsTargets.forEach((f4) => {
+          next[f4.id] = __spreadProps(__spreadValues({}, next[f4.id]), { step: "saved" });
+        });
+        return next;
+      });
+      setTimeout(() => onSwitchToTech(), 300);
+    }), [frames, frameStates, applyThenCompress, onSwitchToTech]);
     const saveDesign = q2((targetFrame, currentState) => {
       const updatedSlices = currentState.slices.map((s3) => {
         const compressed = currentState.compressedSlices.find((c3) => c3.id === s3.id);
@@ -937,18 +969,6 @@
       }, "*");
       patchState(targetFrame.id, { step: "saved" });
     }, [patchState]);
-    const saveAllResults = q2(() => {
-      const targets = frames.filter((f4) => {
-        var _a2, _b2;
-        return ((_b2 = (_a2 = frameStates[f4.id]) == null ? void 0 : _a2.step) != null ? _b2 : "select") === "results";
-      });
-      if (targets.length === 0) return;
-      targets.forEach((f4) => {
-        var _a2;
-        return saveDesign(f4, (_a2 = frameStates[f4.id]) != null ? _a2 : defaultState());
-      });
-      setTimeout(() => onSwitchToTech(), 300);
-    }, [frames, frameStates, saveDesign, onSwitchToTech]);
     if (frames.length === 0) {
       return /* @__PURE__ */ u3("div", { class: "empty-state", children: /* @__PURE__ */ u3("p", { children: [
         "No email frames found on this page.",
@@ -973,6 +993,7 @@
       var _a2, _b2;
       return ((_b2 = (_a2 = frameStates[f4.id]) == null ? void 0 : _a2.step) != null ? _b2 : "select") === "results";
     }).length;
+    const readyToPublishCount = pendingCount + resultsCount;
     return /* @__PURE__ */ u3("div", { class: "designer-mode", children: [
       batchProgress && /* @__PURE__ */ u3("div", { class: "batch-progress", children: [
         /* @__PURE__ */ u3(
@@ -1078,15 +1099,10 @@
         "\u2726 Slice ",
         unslicedCheckedCount > 1 ? `All ${unslicedCheckedCount} Frames` : "Frame"
       ] }) }),
-      pendingCount > 1 && !isBatching && !isApplying && /* @__PURE__ */ u3("div", { class: "action-row", style: { marginBottom: "6px" }, children: /* @__PURE__ */ u3("button", { class: "btn-secondary", style: { flex: 1 }, onClick: applyAndCompressAll, children: [
-        "\u2726 Apply & Compress All ",
-        pendingCount,
-        " Frames"
-      ] }) }),
-      resultsCount >= 1 && !isBatching && !isApplying && /* @__PURE__ */ u3("div", { class: "action-row", style: { marginBottom: "6px" }, children: /* @__PURE__ */ u3("button", { class: "btn-success", style: { flex: 1 }, onClick: saveAllResults, children: [
-        "\u2726 Save ",
-        resultsCount > 1 ? `All ${resultsCount} Frames` : "Frame",
-        " & Push to Klaviyo \u2192"
+      readyToPublishCount >= 1 && !isBatching && !isApplying && /* @__PURE__ */ u3("div", { class: "action-row", style: { marginBottom: "6px" }, children: /* @__PURE__ */ u3("button", { class: "btn-success", style: { flex: 1 }, onClick: applyCompressSaveAll, children: [
+        "\u2726 Apply, Compress & Push ",
+        readyToPublishCount > 1 ? `All ${readyToPublishCount} Frames` : "Frame",
+        " to Klaviyo \u2192"
       ] }) }),
       frames.some((f4) => {
         var _a2, _b2;
