@@ -180,7 +180,6 @@ export function SlicePreview({ slices, frameHeight, imageBase64, onSlicesChange,
       <div class="slice-hint">Click + on any slice to split it • Drag blue handles to adjust • Double-click label to rename</div>
       <div class="preview-actions">
         <button onClick={onReanalyze}>↻ Re-analyze</button>
-        <button onClick={onReanalyze}>Reset</button>
       </div>
     </div>
   );

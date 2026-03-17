@@ -39,7 +39,6 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
   const [applyBatchProgress, setApplyBatchProgress] = useState<{ current: number; total: number } | null>(null);
-  const [compressBatchProgress, setCompressBatchProgress] = useState<{ current: number; total: number } | null>(null);
   const [compressQuality, setCompressQuality] = useState<number>(82);
   const [compressMaxKb, setCompressMaxKb] = useState<number>(500);
   const [compressFormat, setCompressFormat] = useState<'auto' | 'jpeg' | 'png' | 'webp'>('auto');
@@ -239,21 +238,19 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
     stopRef.current = false;
   }, [checkedIds, frames, frameStates, sliceFrame]);
 
-  const applyToFrame = useCallback(async (targetFrame: FrameInfo, currentState: FrameState) => {
+  const applyToFrame = useCallback(async (targetFrame: FrameInfo, currentState: FrameState): Promise<Map<string, string> | null> => {
     try {
       const exported = await createSliceNodes(targetFrame.id, currentState.slices);
-      // Rebuild the ID-keyed image map from the freshly exported slices
       const imgMap = new Map<string, string>();
       currentState.slices.forEach((s, i) => {
         if (exported[i]?.imageBase64) imgMap.set(s.id, exported[i].imageBase64);
       });
-      patchState(targetFrame.id, {
-        figmaSliceImages: imgMap,
-        step: 'applied'
-      });
+      patchState(targetFrame.id, { figmaSliceImages: imgMap, step: 'applied' });
+      return imgMap;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       patchState(targetFrame.id, { error: msg });
+      return null;
     }
   }, [patchState]);
 
@@ -320,37 +317,37 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
     }
   }, [patchState, compressQuality, compressMaxKb, compressFormat]);
 
-  const applyAllInPreview = useCallback(async () => {
-    const targets = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'preview');
+  const applyAndCompressAll = useCallback(async () => {
+    const targets = frames.filter(f => {
+      const s = frameStates[f.id]?.step ?? 'select';
+      return s === 'preview' || s === 'applied';
+    });
     if (targets.length === 0) return;
 
     setApplyBatchProgress({ current: 0, total: targets.length });
     for (let i = 0; i < targets.length; i++) {
       setApplyBatchProgress({ current: i, total: targets.length });
       const targetState = frameStates[targets[i].id] ?? defaultState();
-      if (targetState.figmaSliceImages !== null) {
-        // Figma-native slices — nodes already exist, just advance the step
-        patchState(targets[i].id, { step: 'applied' });
-      } else {
-        // AI slices — create Figma SliceNodes and export images
-        await applyToFrame(targets[i], targetState);
+      const step = targetState.step;
+
+      let stateForCompress = targetState;
+
+      if (step === 'preview') {
+        if (targetState.figmaSliceImages !== null) {
+          // Figma-native: nodes exist, just mark applied
+          patchState(targets[i].id, { step: 'applied' });
+        } else {
+          // AI slices: create Figma nodes, get fresh images
+          const imgMap = await applyToFrame(targets[i], targetState);
+          if (!imgMap) continue; // error already surfaced
+          stateForCompress = { ...targetState, figmaSliceImages: imgMap, step: 'applied' };
+        }
       }
+
+      await compressAndSave(targets[i], stateForCompress);
     }
     setApplyBatchProgress(null);
-  }, [frames, frameStates, applyToFrame, patchState]);
-
-  const compressAllApplied = useCallback(async () => {
-    const targets = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'applied');
-    if (targets.length === 0) return;
-
-    setCompressBatchProgress({ current: 0, total: targets.length });
-    for (let i = 0; i < targets.length; i++) {
-      setCompressBatchProgress({ current: i, total: targets.length });
-      const targetState = frameStates[targets[i].id] ?? defaultState();
-      await compressAndSave(targets[i], targetState);
-    }
-    setCompressBatchProgress(null);
-  }, [frames, frameStates, compressAndSave]);
+  }, [frames, frameStates, applyToFrame, compressAndSave, patchState]);
 
   const saveDesign = useCallback((targetFrame: FrameInfo, currentState: FrameState) => {
     const updatedSlices = currentState.slices.map(s => {
@@ -394,10 +391,11 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
 
   const isBatching = batchProgress !== null;
   const isApplying = applyBatchProgress !== null;
-  const isCompressing = compressBatchProgress !== null;
   const checkedCount = checkedIds.size;
-  const previewCount = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'preview').length;
-  const appliedCount = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'applied').length;
+  const pendingCount = frames.filter(f => {
+    const s = frameStates[f.id]?.step ?? 'select';
+    return s === 'preview' || s === 'applied';
+  }).length;
   const resultsCount = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'results').length;
 
   return (
@@ -414,25 +412,14 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
         </div>
       )}
 
-      {/* Apply-all batch progress bar */}
+      {/* Apply & compress batch progress bar */}
       {applyBatchProgress && (
         <div class="batch-progress">
           <div
             class="batch-bar"
             style={{ width: `${Math.round((applyBatchProgress.current / applyBatchProgress.total) * 100)}%` }}
           />
-          <span>Applying {applyBatchProgress.current + 1} of {applyBatchProgress.total} frames…</span>
-        </div>
-      )}
-
-      {/* Compress-all batch progress bar */}
-      {compressBatchProgress && (
-        <div class="batch-progress">
-          <div
-            class="batch-bar"
-            style={{ width: `${Math.round((compressBatchProgress.current / compressBatchProgress.total) * 100)}%` }}
-          />
-          <span>Compressing {compressBatchProgress.current + 1} of {compressBatchProgress.total} frames…</span>
+          <span>Processing {applyBatchProgress.current + 1} of {applyBatchProgress.total} frames…</span>
         </div>
       )}
 
@@ -491,36 +478,27 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
         })}
       </div>
 
-      {/* Slice all checked button */}
-      {checkedCount > 0 && !isBatching && !isApplying && !isCompressing && (
-        <div class="action-row" style={{ marginBottom: '8px' }}>
+      {/* Slice all checked frames */}
+      {checkedCount > 0 && !isBatching && !isApplying && (
+        <div class="action-row" style={{ marginBottom: '6px' }}>
           <button class="btn-primary" style={{ flex: 1 }} onClick={sliceAllChecked}>
             ✦ Slice {checkedCount > 1 ? `All ${checkedCount} Frames` : 'Frame'}
           </button>
         </div>
       )}
 
-      {/* Apply all previewed frames in one click */}
-      {previewCount > 1 && !isBatching && !isApplying && !isCompressing && (
-        <div class="action-row" style={{ marginBottom: '8px' }}>
-          <button class="btn-secondary" style={{ flex: 1 }} onClick={applyAllInPreview}>
-            ✦ Apply All {previewCount} Frames to Figma
+      {/* Apply + compress all in one shot */}
+      {pendingCount > 1 && !isBatching && !isApplying && (
+        <div class="action-row" style={{ marginBottom: '6px' }}>
+          <button class="btn-secondary" style={{ flex: 1 }} onClick={applyAndCompressAll}>
+            ✦ Apply & Compress All {pendingCount} Frames
           </button>
         </div>
       )}
 
-      {/* Compress all applied frames in one click */}
-      {appliedCount > 1 && !isBatching && !isApplying && !isCompressing && (
-        <div class="action-row" style={{ marginBottom: '8px' }}>
-          <button class="btn-secondary" style={{ flex: 1 }} onClick={compressAllApplied}>
-            ✦ Compress All {appliedCount} Frames
-          </button>
-        </div>
-      )}
-
-      {/* Save all compressed frames + auto-switch to Tech tab */}
-      {resultsCount >= 1 && !isBatching && !isApplying && !isCompressing && (
-        <div class="action-row" style={{ marginBottom: '8px' }}>
+      {/* Save all + auto-switch to Tech tab */}
+      {resultsCount >= 1 && !isBatching && !isApplying && (
+        <div class="action-row" style={{ marginBottom: '6px' }}>
           <button class="btn-success" style={{ flex: 1 }} onClick={saveAllResults}>
             ✦ Save {resultsCount > 1 ? `All ${resultsCount} Frames` : 'Frame'} & Push to Klaviyo →
           </button>
@@ -626,12 +604,10 @@ function FrameWorkflow({ frame, state, fromFigmaSlices, onSlice, onReSlice, onSl
             onReanalyze={onReSlice}
           />
           <div class="action-row">
-            <button class="btn-secondary" onClick={onReSlice}>↻ Re-slice</button>
             {fromFigmaSlices ? (
-              // Figma nodes already exist — skip straight to compression settings
-              <button class="btn-primary" onClick={() => onStepChange('applied')}>Use These Slices →</button>
+              <button class="btn-primary" style={{ flex: 1 }} onClick={() => onStepChange('applied')}>Use These Slices →</button>
             ) : (
-              <button class="btn-primary" onClick={onApplyToFrame}>Apply to Frame →</button>
+              <button class="btn-primary" style={{ flex: 1 }} onClick={onApplyToFrame}>Apply to Frame →</button>
             )}
           </div>
         </div>

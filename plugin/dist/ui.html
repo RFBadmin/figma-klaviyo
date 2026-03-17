@@ -999,10 +999,7 @@
         }
       ),
       /* @__PURE__ */ u3("div", { class: "slice-hint", children: "Click + on any slice to split it \u2022 Drag blue handles to adjust \u2022 Double-click label to rename" }),
-      /* @__PURE__ */ u3("div", { class: "preview-actions", children: [
-        /* @__PURE__ */ u3("button", { onClick: onReanalyze, children: "\u21BB Re-analyze" }),
-        /* @__PURE__ */ u3("button", { onClick: onReanalyze, children: "Reset" })
-      ] })
+      /* @__PURE__ */ u3("div", { class: "preview-actions", children: /* @__PURE__ */ u3("button", { onClick: onReanalyze, children: "\u21BB Re-analyze" }) })
     ] });
   }
   function estimateSize(slices, frameHeight) {
@@ -1030,7 +1027,6 @@
     const [checkedIds, setCheckedIds] = d2(/* @__PURE__ */ new Set());
     const [batchProgress, setBatchProgress] = d2(null);
     const [applyBatchProgress, setApplyBatchProgress] = d2(null);
-    const [compressBatchProgress, setCompressBatchProgress] = d2(null);
     const [compressQuality, setCompressQuality] = d2(82);
     const [compressMaxKb, setCompressMaxKb] = d2(500);
     const [compressFormat, setCompressFormat] = d2("auto");
@@ -1201,13 +1197,12 @@
           var _a2;
           if ((_a2 = exported[i3]) == null ? void 0 : _a2.imageBase64) imgMap.set(s3.id, exported[i3].imageBase64);
         });
-        patchState(targetFrame.id, {
-          figmaSliceImages: imgMap,
-          step: "applied"
-        });
+        patchState(targetFrame.id, { figmaSliceImages: imgMap, step: "applied" });
+        return imgMap;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         patchState(targetFrame.id, { error: msg });
+        return null;
       }
     }), [patchState]);
     const compressAndSave = q2((targetFrame, currentState) => __async(null, null, function* () {
@@ -1265,40 +1260,33 @@
         patchState(targetFrame.id, { error: msg, step: "preview" });
       }
     }), [patchState, compressQuality, compressMaxKb, compressFormat]);
-    const applyAllInPreview = q2(() => __async(null, null, function* () {
+    const applyAndCompressAll = q2(() => __async(null, null, function* () {
       var _a2;
       const targets = frames.filter((f4) => {
         var _a3, _b2;
-        return ((_b2 = (_a3 = frameStates[f4.id]) == null ? void 0 : _a3.step) != null ? _b2 : "select") === "preview";
+        const s3 = (_b2 = (_a3 = frameStates[f4.id]) == null ? void 0 : _a3.step) != null ? _b2 : "select";
+        return s3 === "preview" || s3 === "applied";
       });
       if (targets.length === 0) return;
       setApplyBatchProgress({ current: 0, total: targets.length });
       for (let i3 = 0; i3 < targets.length; i3++) {
         setApplyBatchProgress({ current: i3, total: targets.length });
         const targetState = (_a2 = frameStates[targets[i3].id]) != null ? _a2 : defaultState();
-        if (targetState.figmaSliceImages !== null) {
-          patchState(targets[i3].id, { step: "applied" });
-        } else {
-          yield applyToFrame(targets[i3], targetState);
+        const step = targetState.step;
+        let stateForCompress = targetState;
+        if (step === "preview") {
+          if (targetState.figmaSliceImages !== null) {
+            patchState(targets[i3].id, { step: "applied" });
+          } else {
+            const imgMap = yield applyToFrame(targets[i3], targetState);
+            if (!imgMap) continue;
+            stateForCompress = __spreadProps(__spreadValues({}, targetState), { figmaSliceImages: imgMap, step: "applied" });
+          }
         }
+        yield compressAndSave(targets[i3], stateForCompress);
       }
       setApplyBatchProgress(null);
-    }), [frames, frameStates, applyToFrame, patchState]);
-    const compressAllApplied = q2(() => __async(null, null, function* () {
-      var _a2;
-      const targets = frames.filter((f4) => {
-        var _a3, _b2;
-        return ((_b2 = (_a3 = frameStates[f4.id]) == null ? void 0 : _a3.step) != null ? _b2 : "select") === "applied";
-      });
-      if (targets.length === 0) return;
-      setCompressBatchProgress({ current: 0, total: targets.length });
-      for (let i3 = 0; i3 < targets.length; i3++) {
-        setCompressBatchProgress({ current: i3, total: targets.length });
-        const targetState = (_a2 = frameStates[targets[i3].id]) != null ? _a2 : defaultState();
-        yield compressAndSave(targets[i3], targetState);
-      }
-      setCompressBatchProgress(null);
-    }), [frames, frameStates, compressAndSave]);
+    }), [frames, frameStates, applyToFrame, compressAndSave, patchState]);
     const saveDesign = q2((targetFrame, currentState) => {
       const updatedSlices = currentState.slices.map((s3) => {
         const compressed = currentState.compressedSlices.find((c3) => c3.id === s3.id);
@@ -1339,15 +1327,11 @@
     }
     const isBatching = batchProgress !== null;
     const isApplying = applyBatchProgress !== null;
-    const isCompressing = compressBatchProgress !== null;
     const checkedCount = checkedIds.size;
-    const previewCount = frames.filter((f4) => {
+    const pendingCount = frames.filter((f4) => {
       var _a2, _b2;
-      return ((_b2 = (_a2 = frameStates[f4.id]) == null ? void 0 : _a2.step) != null ? _b2 : "select") === "preview";
-    }).length;
-    const appliedCount = frames.filter((f4) => {
-      var _a2, _b2;
-      return ((_b2 = (_a2 = frameStates[f4.id]) == null ? void 0 : _a2.step) != null ? _b2 : "select") === "applied";
+      const s3 = (_b2 = (_a2 = frameStates[f4.id]) == null ? void 0 : _a2.step) != null ? _b2 : "select";
+      return s3 === "preview" || s3 === "applied";
     }).length;
     const resultsCount = frames.filter((f4) => {
       var _a2, _b2;
@@ -1380,26 +1364,10 @@
           }
         ),
         /* @__PURE__ */ u3("span", { children: [
-          "Applying ",
+          "Processing ",
           applyBatchProgress.current + 1,
           " of ",
           applyBatchProgress.total,
-          " frames\u2026"
-        ] })
-      ] }),
-      compressBatchProgress && /* @__PURE__ */ u3("div", { class: "batch-progress", children: [
-        /* @__PURE__ */ u3(
-          "div",
-          {
-            class: "batch-bar",
-            style: { width: `${Math.round(compressBatchProgress.current / compressBatchProgress.total * 100)}%` }
-          }
-        ),
-        /* @__PURE__ */ u3("span", { children: [
-          "Compressing ",
-          compressBatchProgress.current + 1,
-          " of ",
-          compressBatchProgress.total,
           " frames\u2026"
         ] })
       ] }),
@@ -1470,21 +1438,16 @@
           );
         })
       ] }),
-      checkedCount > 0 && !isBatching && !isApplying && !isCompressing && /* @__PURE__ */ u3("div", { class: "action-row", style: { marginBottom: "8px" }, children: /* @__PURE__ */ u3("button", { class: "btn-primary", style: { flex: 1 }, onClick: sliceAllChecked, children: [
+      checkedCount > 0 && !isBatching && !isApplying && /* @__PURE__ */ u3("div", { class: "action-row", style: { marginBottom: "6px" }, children: /* @__PURE__ */ u3("button", { class: "btn-primary", style: { flex: 1 }, onClick: sliceAllChecked, children: [
         "\u2726 Slice ",
         checkedCount > 1 ? `All ${checkedCount} Frames` : "Frame"
       ] }) }),
-      previewCount > 1 && !isBatching && !isApplying && !isCompressing && /* @__PURE__ */ u3("div", { class: "action-row", style: { marginBottom: "8px" }, children: /* @__PURE__ */ u3("button", { class: "btn-secondary", style: { flex: 1 }, onClick: applyAllInPreview, children: [
-        "\u2726 Apply All ",
-        previewCount,
-        " Frames to Figma"
-      ] }) }),
-      appliedCount > 1 && !isBatching && !isApplying && !isCompressing && /* @__PURE__ */ u3("div", { class: "action-row", style: { marginBottom: "8px" }, children: /* @__PURE__ */ u3("button", { class: "btn-secondary", style: { flex: 1 }, onClick: compressAllApplied, children: [
-        "\u2726 Compress All ",
-        appliedCount,
+      pendingCount > 1 && !isBatching && !isApplying && /* @__PURE__ */ u3("div", { class: "action-row", style: { marginBottom: "6px" }, children: /* @__PURE__ */ u3("button", { class: "btn-secondary", style: { flex: 1 }, onClick: applyAndCompressAll, children: [
+        "\u2726 Apply & Compress All ",
+        pendingCount,
         " Frames"
       ] }) }),
-      resultsCount >= 1 && !isBatching && !isApplying && !isCompressing && /* @__PURE__ */ u3("div", { class: "action-row", style: { marginBottom: "8px" }, children: /* @__PURE__ */ u3("button", { class: "btn-success", style: { flex: 1 }, onClick: saveAllResults, children: [
+      resultsCount >= 1 && !isBatching && !isApplying && /* @__PURE__ */ u3("div", { class: "action-row", style: { marginBottom: "6px" }, children: /* @__PURE__ */ u3("button", { class: "btn-success", style: { flex: 1 }, onClick: saveAllResults, children: [
         "\u2726 Save ",
         resultsCount > 1 ? `All ${resultsCount} Frames` : "Frame",
         " & Push to Klaviyo \u2192"
@@ -1558,13 +1521,7 @@
             onReanalyze: onReSlice
           }
         ),
-        /* @__PURE__ */ u3("div", { class: "action-row", children: [
-          /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: onReSlice, children: "\u21BB Re-slice" }),
-          fromFigmaSlices ? (
-            // Figma nodes already exist — skip straight to compression settings
-            /* @__PURE__ */ u3("button", { class: "btn-primary", onClick: () => onStepChange("applied"), children: "Use These Slices \u2192" })
-          ) : /* @__PURE__ */ u3("button", { class: "btn-primary", onClick: onApplyToFrame, children: "Apply to Frame \u2192" })
-        ] })
+        /* @__PURE__ */ u3("div", { class: "action-row", children: fromFigmaSlices ? /* @__PURE__ */ u3("button", { class: "btn-primary", style: { flex: 1 }, onClick: () => onStepChange("applied"), children: "Use These Slices \u2192" }) : /* @__PURE__ */ u3("button", { class: "btn-primary", style: { flex: 1 }, onClick: onApplyToFrame, children: "Apply to Frame \u2192" }) })
       ] }),
       step === "applied" && /* @__PURE__ */ u3("div", { class: "step-panel", children: [
         /* @__PURE__ */ u3("p", { class: "success-inline", children: "\u2713 Slice nodes ready on frame in Figma" }),
