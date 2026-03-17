@@ -1032,6 +1032,8 @@
     const [compressFormat, setCompressFormat] = d2("auto");
     const stopRef = A2(false);
     const fetchControllerRef = A2(null);
+    const frameStatesRef = A2(frameStates);
+    frameStatesRef.current = frameStates;
     const userPickedRef = A2(null);
     const cancelSlice = q2(() => {
       var _a2;
@@ -1166,7 +1168,7 @@
       const targets = frames.filter(
         (f4) => {
           var _a3, _b2;
-          return checkedIds.has(f4.id) && ((_b2 = (_a3 = frameStates[f4.id]) == null ? void 0 : _a3.step) != null ? _b2 : "select") === "select";
+          return checkedIds.has(f4.id) && ((_b2 = (_a3 = frameStates[f4.id]) == null ? void 0 : _a3.step) != null ? _b2 : "select") === "select" && !f4.hasFigmaSlices;
         }
       );
       if (targets.length === 0) return;
@@ -1275,41 +1277,44 @@
         setApplyBatchProgress({ current: 0, total: previewTargets.length });
         for (let i3 = 0; i3 < previewTargets.length; i3++) {
           setApplyBatchProgress({ current: i3, total: previewTargets.length });
-          const targetState = (_a2 = frameStates[previewTargets[i3].id]) != null ? _a2 : defaultState();
+          const targetState = (_a2 = frameStatesRef.current[previewTargets[i3].id]) != null ? _a2 : defaultState();
           yield applyThenCompress(previewTargets[i3], targetState);
         }
         setApplyBatchProgress(null);
       }
-      setFrameStates((prev) => {
-        const resultsTargets = frames.filter((f4) => {
-          var _a3, _b2;
-          return ((_b2 = (_a3 = prev[f4.id]) == null ? void 0 : _a3.step) != null ? _b2 : "select") === "results";
-        });
-        resultsTargets.forEach((f4) => {
-          var _a3;
-          const currentState = (_a3 = prev[f4.id]) != null ? _a3 : defaultState();
-          const updatedSlices = currentState.slices.map((s3) => {
-            const compressed = currentState.compressedSlices.find((c3) => c3.id === s3.id);
-            return compressed ? __spreadProps(__spreadValues({}, s3), { compressed_url: compressed.temp_url }) : s3;
-          });
-          const sliceData = {
-            version: "1.0.0",
-            created_by: "designer",
-            created_at: (/* @__PURE__ */ new Date()).toISOString(),
-            frame_id: f4.id,
-            frame_name: f4.name,
-            slices: updatedSlices,
-            status: "ready",
-            source: currentState.figmaSliceImages !== null ? "figma_nodes" : "ai"
-          };
-          parent.postMessage({ pluginMessage: { type: "SAVE_SLICE_DATA", frameId: f4.id, data: sliceData } }, "*");
-        });
-        const next = __spreadValues({}, prev);
-        resultsTargets.forEach((f4) => {
-          next[f4.id] = __spreadProps(__spreadValues({}, next[f4.id]), { step: "saved" });
-        });
-        return next;
+      const latestStates = frameStatesRef.current;
+      const toSave = frames.filter((f4) => {
+        var _a3, _b2;
+        return ((_b2 = (_a3 = latestStates[f4.id]) == null ? void 0 : _a3.step) != null ? _b2 : "select") === "results";
       });
+      toSave.forEach((f4) => {
+        const s3 = latestStates[f4.id];
+        if (!s3) return;
+        const updatedSlices = s3.slices.map((sl) => {
+          const c3 = s3.compressedSlices.find((c4) => c4.id === sl.id);
+          return c3 ? __spreadProps(__spreadValues({}, sl), { compressed_url: c3.temp_url }) : sl;
+        });
+        const sliceData = {
+          version: "1.0.0",
+          created_by: "designer",
+          created_at: (/* @__PURE__ */ new Date()).toISOString(),
+          frame_id: f4.id,
+          frame_name: f4.name,
+          slices: updatedSlices,
+          status: "ready",
+          source: s3.figmaSliceImages !== null ? "figma_nodes" : "ai"
+        };
+        parent.postMessage({ pluginMessage: { type: "SAVE_SLICE_DATA", frameId: f4.id, data: sliceData } }, "*");
+      });
+      if (toSave.length > 0) {
+        setFrameStates((prev) => {
+          const next = __spreadValues({}, prev);
+          toSave.forEach((f4) => {
+            next[f4.id] = __spreadProps(__spreadValues({}, next[f4.id]), { step: "saved" });
+          });
+          return next;
+        });
+      }
       setTimeout(() => onSwitchToTech(), 300);
     }), [frames, frameStates, applyThenCompress, onSwitchToTech]);
     const saveDesign = q2((targetFrame, currentState) => {
@@ -1345,7 +1350,7 @@
     const unslicedCheckedCount = frames.filter(
       (f4) => {
         var _a2, _b2;
-        return checkedIds.has(f4.id) && ((_b2 = (_a2 = frameStates[f4.id]) == null ? void 0 : _a2.step) != null ? _b2 : "select") === "select";
+        return checkedIds.has(f4.id) && ((_b2 = (_a2 = frameStates[f4.id]) == null ? void 0 : _a2.step) != null ? _b2 : "select") === "select" && !f4.hasFigmaSlices;
       }
     ).length;
     const pendingCount = frames.filter((f4) => {
@@ -1591,8 +1596,7 @@
             onSlicesChange,
             onReanalyze: onReSlice
           }
-        ),
-        /* @__PURE__ */ u3("div", { class: "action-row", children: /* @__PURE__ */ u3("button", { class: "btn-primary", style: { flex: 1 }, onClick: onApplyAndCompress, children: "Apply & Compress \u2192" }) })
+        )
       ] }),
       step === "compressing" && /* @__PURE__ */ u3("div", { class: "step-panel loading", children: [
         /* @__PURE__ */ u3("div", { class: "spinner" }),

@@ -45,6 +45,9 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
 
   const stopRef = useRef(false);
   const fetchControllerRef = useRef<AbortController | null>(null);
+  // Always-fresh mirror of frameStates for reading inside async callbacks
+  const frameStatesRef = useRef(frameStates);
+  frameStatesRef.current = frameStates;
   // Tracks a manual frame selection made by the user during an active batch, so
   // the batch loop never overrides it.
   const userPickedRef = useRef<string | null>(null);
@@ -215,9 +218,11 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
   }, [patchState]);
 
   const sliceAllChecked = useCallback(async () => {
-    // Only slice frames that haven't been sliced yet — already-sliced frames use Re-analyze
+    // Only slice frames with no slices yet — frames with Figma nodes auto-load, already-sliced use Re-analyze
     const targets = frames.filter(f =>
-      checkedIds.has(f.id) && (frameStates[f.id]?.step ?? 'select') === 'select'
+      checkedIds.has(f.id) &&
+      (frameStates[f.id]?.step ?? 'select') === 'select' &&
+      !f.hasFigmaSlices
     );
     if (targets.length === 0) return;
 
@@ -333,44 +338,52 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
   }, [applyToFrame, compressAndSave]);
 
   const applyCompressSaveAll = useCallback(async () => {
-    // Step 1: Apply + compress all frames in 'preview'
+    // Step 1: Apply + compress all frames currently in 'preview'
     const previewTargets = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'preview');
     if (previewTargets.length > 0) {
       setApplyBatchProgress({ current: 0, total: previewTargets.length });
       for (let i = 0; i < previewTargets.length; i++) {
         setApplyBatchProgress({ current: i, total: previewTargets.length });
-        const targetState = frameStates[previewTargets[i].id] ?? defaultState();
+        const targetState = frameStatesRef.current[previewTargets[i].id] ?? defaultState();
         await applyThenCompress(previewTargets[i], targetState);
       }
       setApplyBatchProgress(null);
     }
 
-    // Step 2: Save all frames now in 'results' (including ones just compressed above)
-    // Re-read frameStates via setter to get the latest values after async ops
-    setFrameStates(prev => {
-      const resultsTargets = frames.filter(f => (prev[f.id]?.step ?? 'select') === 'results');
-      resultsTargets.forEach(f => {
-        const currentState = prev[f.id] ?? defaultState();
-        const updatedSlices = currentState.slices.map(s => {
-          const compressed = currentState.compressedSlices.find(c => c.id === s.id);
-          return compressed ? { ...s, compressed_url: compressed.temp_url } : s;
-        });
-        const sliceData: SliceData = {
-          version: '1.0.0',
-          created_by: 'designer',
-          created_at: new Date().toISOString(),
-          frame_id: f.id,
-          frame_name: f.name,
-          slices: updatedSlices,
-          status: 'ready',
-          source: currentState.figmaSliceImages !== null ? 'figma_nodes' : 'ai'
-        };
-        parent.postMessage({ pluginMessage: { type: 'SAVE_SLICE_DATA', frameId: f.id, data: sliceData } }, '*');
+    // Step 2: Read the LATEST frameStates (via ref) after all async work is done,
+    // then save every frame that's now in 'results'. Keeping postMessage out of the
+    // setState updater avoids the stale-closure / double-invoke pitfall.
+    const latestStates = frameStatesRef.current;
+    const toSave = frames.filter(f => (latestStates[f.id]?.step ?? 'select') === 'results');
+
+    toSave.forEach(f => {
+      const s = latestStates[f.id];
+      if (!s) return;
+      const updatedSlices = s.slices.map(sl => {
+        const c = s.compressedSlices.find(c => c.id === sl.id);
+        return c ? { ...sl, compressed_url: c.temp_url } : sl;
       });
-      const next = { ...prev };
-      resultsTargets.forEach(f => { next[f.id] = { ...next[f.id], step: 'saved' }; });
-      return next;
+      const sliceData: SliceData = {
+        version: '1.0.0',
+        created_by: 'designer',
+        created_at: new Date().toISOString(),
+        frame_id: f.id,
+        frame_name: f.name,
+        slices: updatedSlices,
+        status: 'ready',
+        source: s.figmaSliceImages !== null ? 'figma_nodes' : 'ai'
+      };
+      parent.postMessage({ pluginMessage: { type: 'SAVE_SLICE_DATA', frameId: f.id, data: sliceData } }, '*');
     });
+
+    // Mark saved in UI state
+    if (toSave.length > 0) {
+      setFrameStates(prev => {
+        const next = { ...prev };
+        toSave.forEach(f => { next[f.id] = { ...next[f.id], step: 'saved' }; });
+        return next;
+      });
+    }
 
     setTimeout(() => onSwitchToTech(), 300);
   }, [frames, frameStates, applyThenCompress, onSwitchToTech]);
@@ -413,8 +426,11 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
   const isBatching = batchProgress !== null;
   const isApplying = applyBatchProgress !== null;
   const checkedCount = checkedIds.size;
+  // Frames with hasFigmaSlices are already handled (auto-loaded when activated) — exclude from unsliced count
   const unslicedCheckedCount = frames.filter(f =>
-    checkedIds.has(f.id) && (frameStates[f.id]?.step ?? 'select') === 'select'
+    checkedIds.has(f.id) &&
+    (frameStates[f.id]?.step ?? 'select') === 'select' &&
+    !f.hasFigmaSlices
   ).length;
   const pendingCount = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'preview').length;
   const resultsCount = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'results').length;
@@ -638,9 +654,6 @@ function FrameWorkflow({ frame, state, fromFigmaSlices, onSlice, onReSlice, onSl
             onSlicesChange={onSlicesChange}
             onReanalyze={onReSlice}
           />
-          <div class="action-row">
-            <button class="btn-primary" style={{ flex: 1 }} onClick={onApplyAndCompress}>Apply & Compress →</button>
-          </div>
         </div>
       )}
 
