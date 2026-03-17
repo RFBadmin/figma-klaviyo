@@ -801,16 +801,14 @@
       }
     }), [patchState]);
     const sliceAllChecked = q2(() => __async(null, null, function* () {
-      var _a2;
       const targets = frames.filter(
         (f4) => {
-          var _a3, _b2;
-          return checkedIds.has(f4.id) && ((_b2 = (_a3 = frameStates[f4.id]) == null ? void 0 : _a3.step) != null ? _b2 : "select") === "select" && !f4.hasFigmaSlices;
+          var _a2, _b2;
+          return checkedIds.has(f4.id) && ((_b2 = (_a2 = frameStates[f4.id]) == null ? void 0 : _a2.step) != null ? _b2 : "select") === "select" && !f4.hasFigmaSlices;
         }
       );
       if (targets.length === 0) return;
       userPickedRef.current = null;
-      setActiveFrameId(targets[0].id);
       setBatchProgress({ current: 0, total: targets.length });
       let lastProcessed = targets[0].id;
       for (let i3 = 0; i3 < targets.length; i3++) {
@@ -820,7 +818,9 @@
         lastProcessed = targets[i3].id;
       }
       setBatchProgress(null);
-      if (!stopRef.current) setActiveFrameId((_a2 = userPickedRef.current) != null ? _a2 : lastProcessed);
+      if (!stopRef.current && userPickedRef.current === null) {
+        setActiveFrameId(lastProcessed);
+      }
       userPickedRef.current = null;
       stopRef.current = false;
     }), [checkedIds, frames, frameStates, sliceFrame]);
@@ -954,26 +954,6 @@
       }
       setTimeout(() => onSwitchToTech(), 300);
     }), [frames, frameStates, applyThenCompress, onSwitchToTech]);
-    const saveDesign = q2((targetFrame, currentState) => {
-      const updatedSlices = currentState.slices.map((s3) => {
-        const compressed = currentState.compressedSlices.find((c3) => c3.id === s3.id);
-        return compressed ? __spreadProps(__spreadValues({}, s3), { compressed_url: compressed.temp_url }) : s3;
-      });
-      const sliceData = {
-        version: "1.0.0",
-        created_by: "designer",
-        created_at: (/* @__PURE__ */ new Date()).toISOString(),
-        frame_id: targetFrame.id,
-        frame_name: targetFrame.name,
-        slices: updatedSlices,
-        status: "ready",
-        source: currentState.figmaSliceImages !== null ? "figma_nodes" : "ai"
-      };
-      parent.postMessage({
-        pluginMessage: { type: "SAVE_SLICE_DATA", frameId: targetFrame.id, data: sliceData }
-      }, "*");
-      patchState(targetFrame.id, { step: "saved" });
-    }, [patchState]);
     if (frames.length === 0) {
       return /* @__PURE__ */ u3("div", { class: "empty-state", children: /* @__PURE__ */ u3("p", { children: [
         "No email frames found on this page.",
@@ -1079,7 +1059,7 @@
                     title: f4.name,
                     onClick: () => {
                       setActiveFrameId(f4.id);
-                      if (isBatching) userPickedRef.current = f4.id;
+                      userPickedRef.current = f4.id;
                     },
                     style: { cursor: "pointer", flex: 1 },
                     children: f4.name
@@ -1111,7 +1091,8 @@
       ] }) }),
       frames.some((f4) => {
         var _a2, _b2;
-        return !["select", "analyzing"].includes((_b2 = (_a2 = frameStates[f4.id]) == null ? void 0 : _a2.step) != null ? _b2 : "select");
+        const s3 = (_b2 = (_a2 = frameStates[f4.id]) == null ? void 0 : _a2.step) != null ? _b2 : "select";
+        return s3 !== "select" && s3 !== "analyzing";
       }) && /* @__PURE__ */ u3("div", { class: "compress-settings", style: { marginBottom: "8px" }, children: [
         /* @__PURE__ */ u3("div", { class: "format-row", children: [
           /* @__PURE__ */ u3("span", { class: "settings-label", children: "Output Format" }),
@@ -1181,7 +1162,6 @@
           onSlice: () => sliceFrame(frame),
           onReSlice: () => sliceFrame(frame, true),
           onSlicesChange: (slices) => patchState(frame.id, { slices }),
-          onApplyAndCompress: () => applyThenCompress(frame, state),
           onRecompress: () => compressAndSave(frame, state),
           onStepChange: (step) => patchState(frame.id, { step }),
           onErrorDismiss: () => patchState(frame.id, { error: null }),
@@ -1190,7 +1170,7 @@
       )
     ] });
   }
-  function FrameWorkflow({ frame, state, fromFigmaSlices, onSlice, onReSlice, onSlicesChange, onApplyAndCompress, onRecompress, onStepChange, onErrorDismiss, onCancelSlice }) {
+  function FrameWorkflow({ frame, state, fromFigmaSlices, onSlice, onReSlice, onSlicesChange, onRecompress, onStepChange, onErrorDismiss, onCancelSlice }) {
     const { step, slices, imageBase64, compressResponse, error } = state;
     return /* @__PURE__ */ u3("div", { children: [
       error && /* @__PURE__ */ u3("div", { class: "error-banner", children: [

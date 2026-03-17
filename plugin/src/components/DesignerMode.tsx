@@ -226,9 +226,9 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
     );
     if (targets.length === 0) return;
 
-    // Reset user-pick tracker and show first target at batch start
+    // Reset user-pick tracker; don't force-jump active frame at batch start
+    // so any frame the user is already viewing stays visible.
     userPickedRef.current = null;
-    setActiveFrameId(targets[0].id);
     setBatchProgress({ current: 0, total: targets.length });
 
     let lastProcessed = targets[0].id;
@@ -241,8 +241,10 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
       lastProcessed = targets[i].id;
     }
     setBatchProgress(null);
-    // Navigate to the user's manual pick (if any) or the last processed frame
-    if (!stopRef.current) setActiveFrameId(userPickedRef.current ?? lastProcessed);
+    // Only navigate to last processed if the user never clicked a frame manually.
+    if (!stopRef.current && userPickedRef.current === null) {
+      setActiveFrameId(lastProcessed);
+    }
     userPickedRef.current = null;
     stopRef.current = false;
   }, [checkedIds, frames, frameStates, sliceFrame]);
@@ -388,29 +390,6 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
     setTimeout(() => onSwitchToTech(), 300);
   }, [frames, frameStates, applyThenCompress, onSwitchToTech]);
 
-  const saveDesign = useCallback((targetFrame: FrameInfo, currentState: FrameState) => {
-    const updatedSlices = currentState.slices.map(s => {
-      const compressed = currentState.compressedSlices.find(c => c.id === s.id);
-      return compressed ? { ...s, compressed_url: compressed.temp_url } : s;
-    });
-
-    const sliceData: SliceData = {
-      version: '1.0.0',
-      created_by: 'designer',
-      created_at: new Date().toISOString(),
-      frame_id: targetFrame.id,
-      frame_name: targetFrame.name,
-      slices: updatedSlices,
-      status: 'ready',
-      source: currentState.figmaSliceImages !== null ? 'figma_nodes' : 'ai'
-    };
-
-    parent.postMessage({
-      pluginMessage: { type: 'SAVE_SLICE_DATA', frameId: targetFrame.id, data: sliceData }
-    }, '*');
-
-    patchState(targetFrame.id, { step: 'saved' });
-  }, [patchState]);
 
 
   // ─── Render ─────────────────────────────────────────────────────────────────
@@ -497,7 +476,7 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
                   setActiveFrameId(f.id);
                   // If a batch is running, record this as a deliberate user pick
                   // so the batch loop won't override it on the next iteration.
-                  if (isBatching) userPickedRef.current = f.id;
+                  userPickedRef.current = f.id;
                 }}
                 style={{ cursor: 'pointer', flex: 1 }}
               >{f.name}</span>
@@ -535,7 +514,7 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
       )}
 
       {/* Global compression settings — shown once any frame has been sliced */}
-      {frames.some(f => !['select', 'analyzing'].includes(frameStates[f.id]?.step ?? 'select')) && (
+      {frames.some(f => { const s = frameStates[f.id]?.step ?? 'select'; return s !== 'select' && s !== 'analyzing'; }) && (
         <div class="compress-settings" style={{ marginBottom: '8px' }}>
           <div class="format-row">
             <span class="settings-label">Output Format</span>
@@ -579,7 +558,6 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
           onSlice={() => sliceFrame(frame)}
           onReSlice={() => sliceFrame(frame, true)}
           onSlicesChange={(slices) => patchState(frame.id, { slices })}
-          onApplyAndCompress={() => applyThenCompress(frame, state)}
           onRecompress={() => compressAndSave(frame, state)}
           onStepChange={(step) => patchState(frame.id, { step })}
           onErrorDismiss={() => patchState(frame.id, { error: null })}
@@ -599,14 +577,13 @@ interface WorkflowProps {
   onSlice: () => void;
   onReSlice: () => void;
   onSlicesChange: (slices: Slice[]) => void;
-  onApplyAndCompress: () => void;
   onRecompress: () => void;
   onStepChange: (step: Step) => void;
   onErrorDismiss: () => void;
   onCancelSlice: () => void;
 }
 
-function FrameWorkflow({ frame, state, fromFigmaSlices, onSlice, onReSlice, onSlicesChange, onApplyAndCompress, onRecompress, onStepChange, onErrorDismiss, onCancelSlice }: WorkflowProps) {
+function FrameWorkflow({ frame, state, fromFigmaSlices, onSlice, onReSlice, onSlicesChange, onRecompress, onStepChange, onErrorDismiss, onCancelSlice }: WorkflowProps) {
   const { step, slices, imageBase64, compressResponse, error } = state;
 
   return (
