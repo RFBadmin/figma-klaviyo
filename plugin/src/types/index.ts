@@ -19,6 +19,7 @@ export interface SliceData {
   frame_name: string;
   slices: Slice[];
   status: 'draft' | 'ready' | 'pushed';
+  source?: 'ai' | 'figma_nodes';
 }
 
 export interface SliceExport {

@@ -88,13 +88,20 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
       const next = { ...prev };
       frames.forEach(f => {
         const existing = next[f.id];
-        // Slice nodes were deleted from canvas — reset so we don't re-apply stale data
-        if (existing?.figmaSliceImages !== null && existing?.figmaSliceImages !== undefined && !f.hasFigmaSlices) {
+
+        // Runtime reset: Figma slice nodes were deleted from canvas while plugin was open
+        if (existing?.figmaSliceImages != null && !f.hasFigmaSlices) {
           next[f.id] = defaultState();
           return;
         }
-        // Pre-load saved slice data on first encounter
+
+        // On first load: restore saved slice data, but skip if Figma nodes are gone
         if (f.existingSliceData && !existing) {
+          const fromFigmaNodes = f.existingSliceData.source === 'figma_nodes';
+          if (fromFigmaNodes && !f.hasFigmaSlices) {
+            // Slice nodes were deleted — start fresh instead of re-applying stale data
+            return;
+          }
           next[f.id] = { ...defaultState(), slices: f.existingSliceData.slices, step: 'preview' };
         }
       });
@@ -362,7 +369,8 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
       frame_id: targetFrame.id,
       frame_name: targetFrame.name,
       slices: updatedSlices,
-      status: 'ready'
+      status: 'ready',
+      source: currentState.figmaSliceImages !== null ? 'figma_nodes' : 'ai'
     };
 
     parent.postMessage({

@@ -1067,11 +1067,15 @@
         const next = __spreadValues({}, prev);
         frames.forEach((f4) => {
           const existing = next[f4.id];
-          if ((existing == null ? void 0 : existing.figmaSliceImages) !== null && (existing == null ? void 0 : existing.figmaSliceImages) !== void 0 && !f4.hasFigmaSlices) {
+          if ((existing == null ? void 0 : existing.figmaSliceImages) != null && !f4.hasFigmaSlices) {
             next[f4.id] = defaultState();
             return;
           }
           if (f4.existingSliceData && !existing) {
+            const fromFigmaNodes = f4.existingSliceData.source === "figma_nodes";
+            if (fromFigmaNodes && !f4.hasFigmaSlices) {
+              return;
+            }
             next[f4.id] = __spreadProps(__spreadValues({}, defaultState()), { slices: f4.existingSliceData.slices, step: "preview" });
           }
         });
@@ -1301,7 +1305,8 @@
         frame_id: targetFrame.id,
         frame_name: targetFrame.name,
         slices: updatedSlices,
-        status: "ready"
+        status: "ready",
+        source: currentState.figmaSliceImages !== null ? "figma_nodes" : "ai"
       };
       parent.postMessage({
         pluginMessage: { type: "SAVE_SLICE_DATA", frameId: targetFrame.id, data: sliceData }
