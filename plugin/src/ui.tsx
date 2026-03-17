@@ -77,7 +77,7 @@ function App() {
 
       <main class="plugin-content">
         {mode === 'designer'
-          ? <DesignerMode frames={frames} />
+          ? <DesignerMode frames={frames} onSwitchToTech={() => setMode('tech')} />
           : <TechMode frames={frames} />
         }
       </main>
