@@ -137,6 +137,31 @@
           notifyAllPageFrames();
         }
       });
+      var docChangeTimer = null;
+      figma.on("documentchange", (event) => {
+        const affectsSlices = event.documentChanges.some(
+          (c) => c.type === "DELETE" || c.type === "CREATE" || c.type === "PROPERTY_CHANGE"
+        );
+        if (!affectsSlices) return;
+        if (docChangeTimer) clearTimeout(docChangeTimer);
+        docChangeTimer = setTimeout(() => {
+          docChangeTimer = null;
+          const sel = getSelectedEmailFrames();
+          if (sel.length > 0) {
+            const data = sel.map((frame) => ({
+              id: frame.id,
+              name: frame.name,
+              width: frame.width,
+              height: frame.height,
+              existingSliceData: loadSliceData(frame.id),
+              hasFigmaSlices: frameHasFigmaSlices(frame)
+            }));
+            figma.ui.postMessage({ type: "FRAMES_SELECTED", data });
+          } else {
+            notifyAllPageFrames();
+          }
+        }, 400);
+      });
       figma.ui.onmessage = (msg) => __async(null, null, function* () {
         var _a, _b, _c, _d, _e, _f, _g, _h;
         const reqId = msg._reqId;
@@ -147,7 +172,20 @@
               break;
             }
             case "GET_SELECTED_FRAME": {
-              notifyAllPageFrames();
+              const sel = getSelectedEmailFrames();
+              if (sel.length > 0) {
+                const data = sel.map((frame) => ({
+                  id: frame.id,
+                  name: frame.name,
+                  width: frame.width,
+                  height: frame.height,
+                  existingSliceData: loadSliceData(frame.id),
+                  hasFigmaSlices: frameHasFigmaSlices(frame)
+                }));
+                figma.ui.postMessage({ type: "FRAMES_SELECTED", data });
+              } else {
+                notifyAllPageFrames();
+              }
               break;
             }
             case "EXPORT_FRAME": {

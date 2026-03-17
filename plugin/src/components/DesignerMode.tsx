@@ -5,7 +5,7 @@ import type { FrameInfo } from '../ui';
 
 const BACKEND_URL = 'https://figma-klaviyo-production.up.railway.app';
 
-type Step = 'select' | 'analyzing' | 'preview' | 'applied' | 'compressing' | 'results' | 'saved';
+type Step = 'select' | 'analyzing' | 'preview' | 'compressing' | 'results' | 'saved';
 
 interface FrameState {
   step: Step;
@@ -73,6 +73,8 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
   }, []);
 
   // When frames list changes: set all checked by default, keep active frame if still present.
+  // Also detects when Figma slice nodes were deleted from the canvas (hasFigmaSlices → false)
+  // and resets the affected frame so stale slice data is not re-applied.
   useEffect(() => {
     if (frames.length === 0) return;
 
@@ -82,17 +84,23 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
       frames.find(f => f.id === prev) ? prev : frames[0].id
     );
 
-    // Pre-load saved slice data into state
     setFrameStates(prev => {
       const next = { ...prev };
       frames.forEach(f => {
-        if (f.existingSliceData && !next[f.id]) {
+        const existing = next[f.id];
+        // Slice nodes were deleted from canvas — reset so we don't re-apply stale data
+        if (existing?.figmaSliceImages !== null && existing?.figmaSliceImages !== undefined && !f.hasFigmaSlices) {
+          next[f.id] = defaultState();
+          return;
+        }
+        // Pre-load saved slice data on first encounter
+        if (f.existingSliceData && !existing) {
           next[f.id] = { ...defaultState(), slices: f.existingSliceData.slices, step: 'preview' };
         }
       });
       return next;
     });
-  }, [frames.map(f => f.id).join(',')]);
+  }, [frames.map(f => `${f.id}:${f.hasFigmaSlices ? '1' : '0'}`).join(',')]);
 
   // Active frame object
   const frame = frames.find(f => f.id === activeFrameId) ?? frames[0] ?? null;
@@ -245,7 +253,7 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
       currentState.slices.forEach((s, i) => {
         if (exported[i]?.imageBase64) imgMap.set(s.id, exported[i].imageBase64);
       });
-      patchState(targetFrame.id, { figmaSliceImages: imgMap, step: 'applied' });
+      patchState(targetFrame.id, { figmaSliceImages: imgMap });
       return imgMap;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -317,37 +325,29 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
     }
   }, [patchState, compressQuality, compressMaxKb, compressFormat]);
 
+  // Single-frame: apply nodes (if AI slices) then compress immediately
+  const applyThenCompress = useCallback(async (targetFrame: FrameInfo, currentState: FrameState) => {
+    let stateForCompress = currentState;
+    if (currentState.figmaSliceImages === null) {
+      const imgMap = await applyToFrame(targetFrame, currentState);
+      if (!imgMap) return;
+      stateForCompress = { ...currentState, figmaSliceImages: imgMap };
+    }
+    await compressAndSave(targetFrame, stateForCompress);
+  }, [applyToFrame, compressAndSave]);
+
   const applyAndCompressAll = useCallback(async () => {
-    const targets = frames.filter(f => {
-      const s = frameStates[f.id]?.step ?? 'select';
-      return s === 'preview' || s === 'applied';
-    });
+    const targets = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'preview');
     if (targets.length === 0) return;
 
     setApplyBatchProgress({ current: 0, total: targets.length });
     for (let i = 0; i < targets.length; i++) {
       setApplyBatchProgress({ current: i, total: targets.length });
       const targetState = frameStates[targets[i].id] ?? defaultState();
-      const step = targetState.step;
-
-      let stateForCompress = targetState;
-
-      if (step === 'preview') {
-        if (targetState.figmaSliceImages !== null) {
-          // Figma-native: nodes exist, just mark applied
-          patchState(targets[i].id, { step: 'applied' });
-        } else {
-          // AI slices: create Figma nodes, get fresh images
-          const imgMap = await applyToFrame(targets[i], targetState);
-          if (!imgMap) continue; // error already surfaced
-          stateForCompress = { ...targetState, figmaSliceImages: imgMap, step: 'applied' };
-        }
-      }
-
-      await compressAndSave(targets[i], stateForCompress);
+      await applyThenCompress(targets[i], targetState);
     }
     setApplyBatchProgress(null);
-  }, [frames, frameStates, applyToFrame, compressAndSave, patchState]);
+  }, [frames, frameStates, applyThenCompress]);
 
   const saveDesign = useCallback((targetFrame: FrameInfo, currentState: FrameState) => {
     const updatedSlices = currentState.slices.map(s => {
@@ -392,10 +392,7 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
   const isBatching = batchProgress !== null;
   const isApplying = applyBatchProgress !== null;
   const checkedCount = checkedIds.size;
-  const pendingCount = frames.filter(f => {
-    const s = frameStates[f.id]?.step ?? 'select';
-    return s === 'preview' || s === 'applied';
-  }).length;
+  const pendingCount = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'preview').length;
   const resultsCount = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'results').length;
 
   return (
@@ -505,6 +502,42 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
         </div>
       )}
 
+      {/* Global compression settings — shown once any frame has been sliced */}
+      {frames.some(f => !['select', 'analyzing'].includes(frameStates[f.id]?.step ?? 'select')) && (
+        <div class="compress-settings" style={{ marginBottom: '8px' }}>
+          <div class="format-row">
+            <span class="settings-label">Output Format</span>
+            <div class="format-options">
+              {(['auto', 'jpeg', 'png', 'webp'] as const).map(fmt => (
+                <button
+                  key={fmt}
+                  class={`format-btn ${compressFormat === fmt ? 'active' : ''}`}
+                  onClick={() => setCompressFormat(fmt)}
+                >
+                  {fmt === 'auto' ? 'Auto' : fmt.toUpperCase()}
+                </button>
+              ))}
+            </div>
+            {compressFormat === 'webp' && <span class="format-warning">⚠ Limited email client support</span>}
+            {compressFormat === 'png' && <span class="format-note">PNG is lossless — quality slider ignored</span>}
+          </div>
+          {compressFormat !== 'png' && (
+            <div class="slider-row">
+              <label>Quality <span>{compressQuality}%</span></label>
+              <input type="range" min={50} max={100} value={compressQuality}
+                onInput={(e) => setCompressQuality(+(e.target as HTMLInputElement).value)} />
+              <div class="slider-hints"><span>Smaller file</span><span>Sharper image</span></div>
+            </div>
+          )}
+          <div class="slider-row">
+            <label>Max size per slice <span>{compressMaxKb >= 1000 ? `${(compressMaxKb / 1024).toFixed(1)} MB` : `${compressMaxKb} KB`}</span></label>
+            <input type="range" min={50} max={5000} step={50} value={compressMaxKb}
+              onInput={(e) => setCompressMaxKb(+(e.target as HTMLInputElement).value)} />
+            <div class="slider-hints"><span>50 KB</span><span>5 MB</span></div>
+          </div>
+        </div>
+      )}
+
       {/* Per-frame workflow panel — only shown once slicing has started */}
       {frame && state.step !== 'select' && (
         <FrameWorkflow
@@ -514,18 +547,11 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
           onSlice={() => sliceFrame(frame)}
           onReSlice={() => sliceFrame(frame, true)}
           onSlicesChange={(slices) => patchState(frame.id, { slices })}
-          onApplyToFrame={() => applyToFrame(frame, state)}
-          onCompress={() => compressAndSave(frame, state)}
-          onSave={() => saveDesign(frame, state)}
+          onApplyAndCompress={() => applyThenCompress(frame, state)}
+          onRecompress={() => compressAndSave(frame, state)}
           onStepChange={(step) => patchState(frame.id, { step })}
           onErrorDismiss={() => patchState(frame.id, { error: null })}
           onCancelSlice={cancelSlice}
-          compressQuality={compressQuality}
-          compressMaxKb={compressMaxKb}
-          compressFormat={compressFormat}
-          onQualityChange={setCompressQuality}
-          onMaxKbChange={setCompressMaxKb}
-          onFormatChange={setCompressFormat}
         />
       )}
     </div>
@@ -541,21 +567,14 @@ interface WorkflowProps {
   onSlice: () => void;
   onReSlice: () => void;
   onSlicesChange: (slices: Slice[]) => void;
-  onApplyToFrame: () => void;
-  onCompress: () => void;
-  onSave: () => void;
+  onApplyAndCompress: () => void;
+  onRecompress: () => void;
   onStepChange: (step: Step) => void;
   onErrorDismiss: () => void;
   onCancelSlice: () => void;
-  compressQuality: number;
-  compressMaxKb: number;
-  compressFormat: 'auto' | 'jpeg' | 'png' | 'webp';
-  onQualityChange: (v: number) => void;
-  onMaxKbChange: (v: number) => void;
-  onFormatChange: (v: 'auto' | 'jpeg' | 'png' | 'webp') => void;
 }
 
-function FrameWorkflow({ frame, state, fromFigmaSlices, onSlice, onReSlice, onSlicesChange, onApplyToFrame, onCompress, onSave, onStepChange, onErrorDismiss, onCancelSlice, compressQuality, compressMaxKb, compressFormat, onQualityChange, onMaxKbChange, onFormatChange }: WorkflowProps) {
+function FrameWorkflow({ frame, state, fromFigmaSlices, onSlice, onReSlice, onSlicesChange, onApplyAndCompress, onRecompress, onStepChange, onErrorDismiss, onCancelSlice }: WorkflowProps) {
   const { step, slices, imageBase64, compressResponse, error } = state;
 
   return (
@@ -604,61 +623,7 @@ function FrameWorkflow({ frame, state, fromFigmaSlices, onSlice, onReSlice, onSl
             onReanalyze={onReSlice}
           />
           <div class="action-row">
-            {fromFigmaSlices ? (
-              <button class="btn-primary" style={{ flex: 1 }} onClick={() => onStepChange('applied')}>Use These Slices →</button>
-            ) : (
-              <button class="btn-primary" style={{ flex: 1 }} onClick={onApplyToFrame}>Apply to Frame →</button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {step === 'applied' && (
-        <div class="step-panel">
-          <p class="success-inline">✓ Slice nodes ready on frame in Figma</p>
-
-          <div class="compress-settings">
-            <div class="format-row">
-              <span class="settings-label">Format</span>
-              <div class="format-options">
-                {(['auto', 'jpeg', 'png', 'webp'] as const).map(fmt => (
-                  <button
-                    key={fmt}
-                    class={`format-btn ${compressFormat === fmt ? 'active' : ''}`}
-                    onClick={() => onFormatChange(fmt)}
-                  >
-                    {fmt === 'auto' ? 'Auto' : fmt.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-              {compressFormat === 'webp' && (
-                <span class="format-warning">⚠ WebP has limited email client support</span>
-              )}
-              {compressFormat === 'png' && (
-                <span class="format-note">PNG is lossless — quality slider not applied</span>
-              )}
-            </div>
-
-            {compressFormat !== 'png' && (
-              <div class="slider-row">
-                <label>Quality <span>{compressQuality}%</span></label>
-                <input type="range" min={50} max={100} value={compressQuality}
-                  onInput={(e) => onQualityChange(+(e.target as HTMLInputElement).value)} />
-                <div class="slider-hints"><span>Smaller file</span><span>Sharper image</span></div>
-              </div>
-            )}
-
-            <div class="slider-row">
-              <label>Max size per slice <span>{compressMaxKb >= 1000 ? `${(compressMaxKb / 1024).toFixed(1)} MB` : `${compressMaxKb} KB`}</span></label>
-              <input type="range" min={50} max={5000} step={50} value={compressMaxKb}
-                onInput={(e) => onMaxKbChange(+(e.target as HTMLInputElement).value)} />
-              <div class="slider-hints"><span>50 KB</span><span>5 MB (Klaviyo max)</span></div>
-            </div>
-          </div>
-
-          <div class="action-row">
-            <button class="btn-secondary" onClick={() => onStepChange('preview')}>← Adjust</button>
-            <button class="btn-primary" onClick={onCompress}>Compress →</button>
+            <button class="btn-primary" style={{ flex: 1 }} onClick={onApplyAndCompress}>Apply & Compress →</button>
           </div>
         </div>
       )}
@@ -666,7 +631,7 @@ function FrameWorkflow({ frame, state, fromFigmaSlices, onSlice, onReSlice, onSl
       {step === 'compressing' && (
         <div class="step-panel loading">
           <div class="spinner" />
-          <p>Compressing {slices.length} slices with Sharp…</p>
+          <p>Compressing {slices.length} slices…</p>
         </div>
       )}
 
@@ -674,15 +639,8 @@ function FrameWorkflow({ frame, state, fromFigmaSlices, onSlice, onReSlice, onSl
         <div class="step-panel">
           <CompressionResults response={compressResponse} />
           <div class="action-row">
-            <button class="btn-secondary" onClick={() => onStepChange('preview')}>← Adjust Slices</button>
-            <button class="btn-secondary" onClick={onCompress}>↻ Re-compress</button>
-            <button
-              class="btn-primary"
-              disabled={compressResponse.summary.failed_count > 0}
-              onClick={onSave}
-            >
-              Save →
-            </button>
+            <button class="btn-secondary" onClick={() => onStepChange('preview')}>← Adjust</button>
+            <button class="btn-secondary" onClick={onRecompress}>↻ Re-compress</button>
           </div>
         </div>
       )}

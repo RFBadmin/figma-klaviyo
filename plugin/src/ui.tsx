@@ -49,7 +49,7 @@ function App() {
     };
 
     window.addEventListener('message', handler);
-    parent.postMessage({ pluginMessage: { type: 'GET_ALL_FRAMES' } }, '*');
+    parent.postMessage({ pluginMessage: { type: 'GET_SELECTED_FRAME' } }, '*');
     return () => window.removeEventListener('message', handler);
   }, []);
 
