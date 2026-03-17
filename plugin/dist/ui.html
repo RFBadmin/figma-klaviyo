@@ -1173,17 +1173,17 @@
       if (targets.length === 0) return;
       userPickedRef.current = null;
       setBatchProgress({ current: 0, total: targets.length });
-      let lastProcessed = targets[0].id;
+      let lockedToFirst = false;
       for (let i3 = 0; i3 < targets.length; i3++) {
         if (stopRef.current) break;
         setBatchProgress({ current: i3, total: targets.length });
         yield sliceFrame(targets[i3]);
-        lastProcessed = targets[i3].id;
+        if (!lockedToFirst && userPickedRef.current === null) {
+          setActiveFrameId(targets[i3].id);
+          lockedToFirst = true;
+        }
       }
       setBatchProgress(null);
-      if (!stopRef.current && userPickedRef.current === null) {
-        setActiveFrameId(lastProcessed);
-      }
       userPickedRef.current = null;
       stopRef.current = false;
     }), [checkedIds, frames, frameStates, sliceFrame]);
@@ -1457,6 +1457,7 @@
         const s3 = (_b2 = (_a2 = frameStates[f4.id]) == null ? void 0 : _a2.step) != null ? _b2 : "select";
         return s3 !== "select" && s3 !== "analyzing";
       }) && /* @__PURE__ */ u3("div", { class: "compress-settings", style: { marginBottom: "8px" }, children: [
+        /* @__PURE__ */ u3("div", { style: { fontSize: 11, color: "#888", marginBottom: 6, fontStyle: "italic" }, children: "\u2699 Compression settings apply to all frames" }),
         /* @__PURE__ */ u3("div", { class: "format-row", children: [
           /* @__PURE__ */ u3("span", { class: "settings-label", children: "Output Format" }),
           /* @__PURE__ */ u3("div", { class: "format-options", children: ["auto", "jpeg", "png", "webp"].map((fmt) => /* @__PURE__ */ u3(

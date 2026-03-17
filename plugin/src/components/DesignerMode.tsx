@@ -226,25 +226,23 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
     );
     if (targets.length === 0) return;
 
-    // Reset user-pick tracker; don't force-jump active frame at batch start
-    // so any frame the user is already viewing stays visible.
+    // Reset user-pick tracker; don't force-jump at batch start.
     userPickedRef.current = null;
     setBatchProgress({ current: 0, total: targets.length });
 
-    let lastProcessed = targets[0].id;
+    let lockedToFirst = false;
     for (let i = 0; i < targets.length; i++) {
       if (stopRef.current) break;
       setBatchProgress({ current: i, total: targets.length });
-      // Do NOT force-switch the active frame here — the user may have clicked
-      // a different frame to preview it while the batch runs in the background.
       await sliceFrame(targets[i]);
-      lastProcessed = targets[i].id;
+      // Lock the view to the FIRST completed frame (if user hasn't manually
+      // picked something). Subsequent completions don't move the active frame.
+      if (!lockedToFirst && userPickedRef.current === null) {
+        setActiveFrameId(targets[i].id);
+        lockedToFirst = true;
+      }
     }
     setBatchProgress(null);
-    // Only navigate to last processed if the user never clicked a frame manually.
-    if (!stopRef.current && userPickedRef.current === null) {
-      setActiveFrameId(lastProcessed);
-    }
     userPickedRef.current = null;
     stopRef.current = false;
   }, [checkedIds, frames, frameStates, sliceFrame]);
@@ -516,6 +514,9 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
       {/* Global compression settings — shown once any frame has been sliced */}
       {frames.some(f => { const s = frameStates[f.id]?.step ?? 'select'; return s !== 'select' && s !== 'analyzing'; }) && (
         <div class="compress-settings" style={{ marginBottom: '8px' }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 6, fontStyle: 'italic' }}>
+            ⚙ Compression settings apply to all frames
+          </div>
           <div class="format-row">
             <span class="settings-label">Output Format</span>
             <div class="format-options">
