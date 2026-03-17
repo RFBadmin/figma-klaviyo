@@ -28,19 +28,24 @@ Return ONLY valid JSON (no markdown):
 
 
 # Used when Figma layer bands are available — AI groups bands, pixel positions stay exact
-GROUP_PROMPT = """You are looking at an email design. The design's layers have been measured and split into {n} horizontal bands with exact pixel positions:
+GROUP_PROMPT = """You are looking at an email design. The design's layers have been measured into {n} horizontal bands:
 
 {bands_list}
 
-Your job: GROUP consecutive bands into logical email sections by deciding which bands visually belong together.
+Each band shows: position, [NODE TYPE], [IMAGE FILL] if it contains a background/hero image, and the layer name.
+Node types: [FRAME] [RECTANGLE] [TEXT] [COMPONENT] [GROUP]
 
-Rules:
-- Bands that overlap or are part of the same visual composition must be in the same group
-- A button or text overlaid on a background image → same group as that image
-- Side-by-side images in a row → already in the same band, keep together
-- Only split into a new group when there is a clear visual separation between rows
-- Every band must be in exactly one group, in order (no skipping, no reordering)
-- Give each group a short descriptive name (e.g. header, hero_banner, product_row_1, cta, footer)
+Your job: GROUP consecutive bands into logical email sections — each group becomes one exported image.
+
+Rules (apply in this order):
+1. Overlapping Y ranges → must be the same group (one element is layered over another)
+2. A [FRAME] or [COMPONENT] whose Y range falls inside an [IMAGE FILL] band → same group (CTA button on hero image)
+3. A [TEXT] band within ~50px of an [IMAGE FILL] or large [FRAME] → same group (headline/copy on image)
+4. Side-by-side elements already share one band — keep them together
+5. Only start a new group where there is a clear horizontal gap and the content is completely separate
+6. Every band must belong to exactly one group, in order (no skipping, no reordering)
+
+Give each group a short descriptive name (header, hero_cta, product_row_1, footer, etc.)
 
 Return ONLY valid JSON (no markdown):
 {{
@@ -74,10 +79,12 @@ class ClaudeVisionService:
 
     def _group_bands(self, image_base64: str, width: int, height: int, bands: list) -> dict:
         """AI groups pre-computed layer bands into logical sections."""
-        bands_list = '\n'.join(
-            f"  Band {i}: y={b['y_start']}–{b['y_end']}px  \"{b['name']}\""
-            for i, b in enumerate(bands)
-        )
+        def fmt_band(i, b):
+            node_type = b.get('nodeType', '?')
+            img_flag = ' [IMAGE FILL]' if b.get('hasImageFill') else ''
+            return f"  Band {i}: y={b['y_start']}–{b['y_end']}px  [{node_type}]{img_flag}  \"{b['name']}\""
+
+        bands_list = '\n'.join(fmt_band(i, b) for i, b in enumerate(bands))
         prompt = GROUP_PROMPT.format(
             n=len(bands),
             bands_list=bands_list,

@@ -666,6 +666,7 @@
     const [frameStates, setFrameStates] = d2({});
     const [checkedIds, setCheckedIds] = d2(/* @__PURE__ */ new Set());
     const [batchProgress, setBatchProgress] = d2(null);
+    const [applyBatchProgress, setApplyBatchProgress] = d2(null);
     const [compressQuality, setCompressQuality] = d2(82);
     const [compressMaxKb, setCompressMaxKb] = d2(500);
     const [compressFormat, setCompressFormat] = d2("auto");
@@ -900,6 +901,25 @@
         patchState(targetFrame.id, { error: msg, step: "preview" });
       }
     }), [patchState, compressQuality, compressMaxKb, compressFormat]);
+    const applyAllInPreview = q2(() => __async(null, null, function* () {
+      var _a2;
+      const targets = frames.filter((f4) => {
+        var _a3, _b2;
+        return ((_b2 = (_a3 = frameStates[f4.id]) == null ? void 0 : _a3.step) != null ? _b2 : "select") === "preview";
+      });
+      if (targets.length === 0) return;
+      setApplyBatchProgress({ current: 0, total: targets.length });
+      for (let i3 = 0; i3 < targets.length; i3++) {
+        setApplyBatchProgress({ current: i3, total: targets.length });
+        const targetState = (_a2 = frameStates[targets[i3].id]) != null ? _a2 : defaultState();
+        if (targetState.figmaSliceImages !== null) {
+          patchState(targets[i3].id, { step: "applied" });
+        } else {
+          yield applyToFrame(targets[i3], targetState);
+        }
+      }
+      setApplyBatchProgress(null);
+    }), [frames, frameStates, applyToFrame, patchState]);
     const saveDesign = q2((targetFrame, currentState) => {
       const updatedSlices = currentState.slices.map((s3) => {
         const compressed = currentState.compressedSlices.find((c3) => c3.id === s3.id);
@@ -927,7 +947,12 @@
       ] }) });
     }
     const isBatching = batchProgress !== null;
+    const isApplying = applyBatchProgress !== null;
     const checkedCount = checkedIds.size;
+    const previewCount = frames.filter((f4) => {
+      var _a2, _b2;
+      return ((_b2 = (_a2 = frameStates[f4.id]) == null ? void 0 : _a2.step) != null ? _b2 : "select") === "preview";
+    }).length;
     return /* @__PURE__ */ u3("div", { class: "designer-mode", children: [
       batchProgress && /* @__PURE__ */ u3("div", { class: "batch-progress", children: [
         /* @__PURE__ */ u3(
@@ -945,6 +970,22 @@
           "\u2026"
         ] }),
         /* @__PURE__ */ u3("button", { class: "btn-stop-inline", onClick: cancelSlice, children: "\u2715 Stop" })
+      ] }),
+      applyBatchProgress && /* @__PURE__ */ u3("div", { class: "batch-progress", children: [
+        /* @__PURE__ */ u3(
+          "div",
+          {
+            class: "batch-bar",
+            style: { width: `${Math.round(applyBatchProgress.current / applyBatchProgress.total * 100)}%` }
+          }
+        ),
+        /* @__PURE__ */ u3("span", { children: [
+          "Applying ",
+          applyBatchProgress.current + 1,
+          " of ",
+          applyBatchProgress.total,
+          " frames\u2026"
+        ] })
       ] }),
       /* @__PURE__ */ u3("div", { class: "frame-checklist", children: [
         /* @__PURE__ */ u3("div", { class: "checklist-header", children: [
@@ -1013,9 +1054,14 @@
           );
         })
       ] }),
-      checkedCount > 0 && !isBatching && /* @__PURE__ */ u3("div", { class: "action-row", style: { marginBottom: "8px" }, children: /* @__PURE__ */ u3("button", { class: "btn-primary", style: { flex: 1 }, onClick: sliceAllChecked, children: [
+      checkedCount > 0 && !isBatching && !isApplying && /* @__PURE__ */ u3("div", { class: "action-row", style: { marginBottom: "8px" }, children: /* @__PURE__ */ u3("button", { class: "btn-primary", style: { flex: 1 }, onClick: sliceAllChecked, children: [
         "\u2726 Slice ",
         checkedCount > 1 ? `All ${checkedCount} Frames` : "Frame"
+      ] }) }),
+      previewCount > 1 && !isBatching && !isApplying && /* @__PURE__ */ u3("div", { class: "action-row", style: { marginBottom: "8px" }, children: /* @__PURE__ */ u3("button", { class: "btn-secondary", style: { flex: 1 }, onClick: applyAllInPreview, children: [
+        "\u2726 Apply All ",
+        previewCount,
+        " Frames to Figma"
       ] }) }),
       frame && state.step !== "select" && /* @__PURE__ */ u3(
         FrameWorkflow,

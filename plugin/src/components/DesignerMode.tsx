@@ -37,6 +37,7 @@ export function DesignerMode({ frames }: Props) {
   const [frameStates, setFrameStates] = useState<Record<string, FrameState>>({});
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
+  const [applyBatchProgress, setApplyBatchProgress] = useState<{ current: number; total: number } | null>(null);
   const [compressQuality, setCompressQuality] = useState<number>(82);
   const [compressMaxKb, setCompressMaxKb] = useState<number>(500);
   const [compressFormat, setCompressFormat] = useState<'auto' | 'jpeg' | 'png' | 'webp'>('auto');
@@ -317,6 +318,25 @@ export function DesignerMode({ frames }: Props) {
     }
   }, [patchState, compressQuality, compressMaxKb, compressFormat]);
 
+  const applyAllInPreview = useCallback(async () => {
+    const targets = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'preview');
+    if (targets.length === 0) return;
+
+    setApplyBatchProgress({ current: 0, total: targets.length });
+    for (let i = 0; i < targets.length; i++) {
+      setApplyBatchProgress({ current: i, total: targets.length });
+      const targetState = frameStates[targets[i].id] ?? defaultState();
+      if (targetState.figmaSliceImages !== null) {
+        // Figma-native slices — nodes already exist, just advance the step
+        patchState(targets[i].id, { step: 'applied' });
+      } else {
+        // AI slices — create Figma SliceNodes and export images
+        await applyToFrame(targets[i], targetState);
+      }
+    }
+    setApplyBatchProgress(null);
+  }, [frames, frameStates, applyToFrame, patchState]);
+
   const saveDesign = useCallback((targetFrame: FrameInfo, currentState: FrameState) => {
     const updatedSlices = currentState.slices.map(s => {
       const compressed = currentState.compressedSlices.find(c => c.id === s.id);
@@ -351,11 +371,13 @@ export function DesignerMode({ frames }: Props) {
   }
 
   const isBatching = batchProgress !== null;
+  const isApplying = applyBatchProgress !== null;
   const checkedCount = checkedIds.size;
+  const previewCount = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'preview').length;
 
   return (
     <div class="designer-mode">
-      {/* Batch progress bar */}
+      {/* Slice batch progress bar */}
       {batchProgress && (
         <div class="batch-progress">
           <div
@@ -364,6 +386,17 @@ export function DesignerMode({ frames }: Props) {
           />
           <span>Slicing {batchProgress.current + 1} of {batchProgress.total}…</span>
           <button class="btn-stop-inline" onClick={cancelSlice}>✕ Stop</button>
+        </div>
+      )}
+
+      {/* Apply-all batch progress bar */}
+      {applyBatchProgress && (
+        <div class="batch-progress">
+          <div
+            class="batch-bar"
+            style={{ width: `${Math.round((applyBatchProgress.current / applyBatchProgress.total) * 100)}%` }}
+          />
+          <span>Applying {applyBatchProgress.current + 1} of {applyBatchProgress.total} frames…</span>
         </div>
       )}
 
@@ -423,10 +456,19 @@ export function DesignerMode({ frames }: Props) {
       </div>
 
       {/* Slice all checked button */}
-      {checkedCount > 0 && !isBatching && (
+      {checkedCount > 0 && !isBatching && !isApplying && (
         <div class="action-row" style={{ marginBottom: '8px' }}>
           <button class="btn-primary" style={{ flex: 1 }} onClick={sliceAllChecked}>
             ✦ Slice {checkedCount > 1 ? `All ${checkedCount} Frames` : 'Frame'}
+          </button>
+        </div>
+      )}
+
+      {/* Apply all previewed frames in one click */}
+      {previewCount > 1 && !isBatching && !isApplying && (
+        <div class="action-row" style={{ marginBottom: '8px' }}>
+          <button class="btn-secondary" style={{ flex: 1 }} onClick={applyAllInPreview}>
+            ✦ Apply All {previewCount} Frames to Figma
           </button>
         </div>
       )}
