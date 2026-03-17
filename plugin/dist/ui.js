@@ -842,7 +842,7 @@
     }), [patchState]);
     const compressAndSave = q2((targetFrame, currentState) => __async(null, null, function* () {
       var _a2;
-      if (currentState.slices.length === 0) return;
+      if (currentState.slices.length === 0) return null;
       patchState(targetFrame.id, { error: null, step: "compressing" });
       try {
         let sliceExports;
@@ -890,19 +890,23 @@
           compressedSlices: data.compressed,
           step: "results"
         });
+        return data;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         patchState(targetFrame.id, { error: msg, step: "preview" });
+        return null;
       }
     }), [patchState, compressQuality, compressMaxKb, compressFormat]);
     const applyThenCompress = q2((targetFrame, currentState) => __async(null, null, function* () {
       let stateForCompress = currentState;
       if (currentState.figmaSliceImages === null) {
         const imgMap = yield applyToFrame(targetFrame, currentState);
-        if (!imgMap) return;
+        if (!imgMap) return null;
         stateForCompress = __spreadProps(__spreadValues({}, currentState), { figmaSliceImages: imgMap });
       }
-      yield compressAndSave(targetFrame, stateForCompress);
+      const compressResponse = yield compressAndSave(targetFrame, stateForCompress);
+      if (!compressResponse) return null;
+      return { compressResponse, figmaSliceImages: stateForCompress.figmaSliceImages, slices: stateForCompress.slices };
     }), [applyToFrame, compressAndSave]);
     const applyCompressSaveAll = q2(() => __async(null, null, function* () {
       var _a2;
@@ -910,48 +914,36 @@
         var _a3, _b2;
         return ((_b2 = (_a3 = frameStates[f4.id]) == null ? void 0 : _a3.step) != null ? _b2 : "select") === "preview";
       });
-      if (previewTargets.length > 0) {
-        setApplyBatchProgress({ current: 0, total: previewTargets.length });
-        for (let i3 = 0; i3 < previewTargets.length; i3++) {
-          setApplyBatchProgress({ current: i3, total: previewTargets.length });
-          const targetState = (_a2 = frameStatesRef.current[previewTargets[i3].id]) != null ? _a2 : defaultState();
-          yield applyThenCompress(previewTargets[i3], targetState);
-        }
-        setApplyBatchProgress(null);
+      if (previewTargets.length === 0) {
+        setTimeout(() => onSwitchToTech(), 300);
+        return;
       }
-      const latestStates = frameStatesRef.current;
-      const toSave = frames.filter((f4) => {
-        var _a3, _b2;
-        return ((_b2 = (_a3 = latestStates[f4.id]) == null ? void 0 : _a3.step) != null ? _b2 : "select") === "results";
-      });
-      toSave.forEach((f4) => {
-        const s3 = latestStates[f4.id];
-        if (!s3) return;
-        const updatedSlices = s3.slices.map((sl) => {
-          const c3 = s3.compressedSlices.find((c4) => c4.id === sl.id);
+      setApplyBatchProgress({ current: 0, total: previewTargets.length });
+      for (let i3 = 0; i3 < previewTargets.length; i3++) {
+        setApplyBatchProgress({ current: i3, total: previewTargets.length });
+        const targetFrame = previewTargets[i3];
+        const targetState = (_a2 = frameStatesRef.current[targetFrame.id]) != null ? _a2 : defaultState();
+        const result = yield applyThenCompress(targetFrame, targetState);
+        if (!result) continue;
+        const { compressResponse, figmaSliceImages, slices } = result;
+        const updatedSlices = slices.map((sl) => {
+          const c3 = compressResponse.compressed.find((c4) => c4.id === sl.id);
           return c3 ? __spreadProps(__spreadValues({}, sl), { compressed_url: c3.temp_url }) : sl;
         });
         const sliceData = {
           version: "1.0.0",
           created_by: "designer",
           created_at: (/* @__PURE__ */ new Date()).toISOString(),
-          frame_id: f4.id,
-          frame_name: f4.name,
+          frame_id: targetFrame.id,
+          frame_name: targetFrame.name,
           slices: updatedSlices,
           status: "ready",
-          source: s3.figmaSliceImages !== null ? "figma_nodes" : "ai"
+          source: figmaSliceImages !== null ? "figma_nodes" : "ai"
         };
-        parent.postMessage({ pluginMessage: { type: "SAVE_SLICE_DATA", frameId: f4.id, data: sliceData } }, "*");
-      });
-      if (toSave.length > 0) {
-        setFrameStates((prev) => {
-          const next = __spreadValues({}, prev);
-          toSave.forEach((f4) => {
-            next[f4.id] = __spreadProps(__spreadValues({}, next[f4.id]), { step: "saved" });
-          });
-          return next;
-        });
+        parent.postMessage({ pluginMessage: { type: "SAVE_SLICE_DATA", frameId: targetFrame.id, data: sliceData } }, "*");
+        setFrameStates((prev) => __spreadProps(__spreadValues({}, prev), { [targetFrame.id]: __spreadProps(__spreadValues({}, prev[targetFrame.id]), { step: "saved" }) }));
       }
+      setApplyBatchProgress(null);
       setTimeout(() => onSwitchToTech(), 300);
     }), [frames, frameStates, applyThenCompress, onSwitchToTech]);
     if (frames.length === 0) {

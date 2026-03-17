@@ -263,16 +263,14 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
     }
   }, [patchState]);
 
-  const compressAndSave = useCallback(async (targetFrame: FrameInfo, currentState: FrameState) => {
-    if (currentState.slices.length === 0) return;
+  const compressAndSave = useCallback(async (targetFrame: FrameInfo, currentState: FrameState): Promise<CompressResponse | null> => {
+    if (currentState.slices.length === 0) return null;
     patchState(targetFrame.id, { error: null, step: 'compressing' });
 
     try {
       let sliceExports: { id: string; name: string; image_base64: string }[];
 
       if (currentState.figmaSliceImages?.size) {
-        // Use pre-exported images, looked up by slice ID (not positional index).
-        // If any slice was split/added and has no matching image, fall back to canvas crop.
         const allHaveImages = currentState.slices.every(s => currentState.figmaSliceImages!.has(s.id));
         if (allHaveImages) {
           sliceExports = currentState.slices.map(s => ({
@@ -281,7 +279,6 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
             image_base64: currentState.figmaSliceImages!.get(s.id)!
           }));
         } else {
-          // Some slices were split/added — fall back to full-frame canvas crop
           let base64 = currentState.imageBase64;
           if (!base64) {
             base64 = await exportFullFrame(targetFrame.id);
@@ -320,71 +317,68 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
         compressedSlices: data.compressed,
         step: 'results'
       });
+      return data;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       patchState(targetFrame.id, { error: msg, step: 'preview' });
+      return null;
     }
   }, [patchState, compressQuality, compressMaxKb, compressFormat]);
 
   // Single-frame: apply nodes (if AI slices) then compress immediately
-  const applyThenCompress = useCallback(async (targetFrame: FrameInfo, currentState: FrameState) => {
+  const applyThenCompress = useCallback(async (
+    targetFrame: FrameInfo,
+    currentState: FrameState
+  ): Promise<{ compressResponse: CompressResponse; figmaSliceImages: Map<string, string> | null; slices: Slice[] } | null> => {
     let stateForCompress = currentState;
     if (currentState.figmaSliceImages === null) {
       const imgMap = await applyToFrame(targetFrame, currentState);
-      if (!imgMap) return;
+      if (!imgMap) return null;
       stateForCompress = { ...currentState, figmaSliceImages: imgMap };
     }
-    await compressAndSave(targetFrame, stateForCompress);
+    const compressResponse = await compressAndSave(targetFrame, stateForCompress);
+    if (!compressResponse) return null;
+    return { compressResponse, figmaSliceImages: stateForCompress.figmaSliceImages, slices: stateForCompress.slices };
   }, [applyToFrame, compressAndSave]);
 
   const applyCompressSaveAll = useCallback(async () => {
-    // Step 1: Apply + compress all frames currently in 'preview'
     const previewTargets = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'preview');
-    if (previewTargets.length > 0) {
-      setApplyBatchProgress({ current: 0, total: previewTargets.length });
-      for (let i = 0; i < previewTargets.length; i++) {
-        setApplyBatchProgress({ current: i, total: previewTargets.length });
-        const targetState = frameStatesRef.current[previewTargets[i].id] ?? defaultState();
-        await applyThenCompress(previewTargets[i], targetState);
-      }
-      setApplyBatchProgress(null);
+    if (previewTargets.length === 0) {
+      setTimeout(() => onSwitchToTech(), 300);
+      return;
     }
 
-    // Step 2: Read the LATEST frameStates (via ref) after all async work is done,
-    // then save every frame that's now in 'results'. Keeping postMessage out of the
-    // setState updater avoids the stale-closure / double-invoke pitfall.
-    const latestStates = frameStatesRef.current;
-    const toSave = frames.filter(f => (latestStates[f.id]?.step ?? 'select') === 'results');
+    setApplyBatchProgress({ current: 0, total: previewTargets.length });
+    for (let i = 0; i < previewTargets.length; i++) {
+      setApplyBatchProgress({ current: i, total: previewTargets.length });
+      const targetFrame = previewTargets[i];
+      const targetState = frameStatesRef.current[targetFrame.id] ?? defaultState();
 
-    toSave.forEach(f => {
-      const s = latestStates[f.id];
-      if (!s) return;
-      const updatedSlices = s.slices.map(sl => {
-        const c = s.compressedSlices.find(c => c.id === sl.id);
+      // applyThenCompress returns data directly — no React state re-read needed,
+      // so all frames are saved correctly regardless of React's render timing.
+      const result = await applyThenCompress(targetFrame, targetState);
+      if (!result) continue;
+
+      const { compressResponse, figmaSliceImages, slices } = result;
+      const updatedSlices = slices.map(sl => {
+        const c = compressResponse.compressed.find(c => c.id === sl.id);
         return c ? { ...sl, compressed_url: c.temp_url } : sl;
       });
       const sliceData: SliceData = {
         version: '1.0.0',
         created_by: 'designer',
         created_at: new Date().toISOString(),
-        frame_id: f.id,
-        frame_name: f.name,
+        frame_id: targetFrame.id,
+        frame_name: targetFrame.name,
         slices: updatedSlices,
         status: 'ready',
-        source: s.figmaSliceImages !== null ? 'figma_nodes' : 'ai'
+        source: figmaSliceImages !== null ? 'figma_nodes' : 'ai'
       };
-      parent.postMessage({ pluginMessage: { type: 'SAVE_SLICE_DATA', frameId: f.id, data: sliceData } }, '*');
-    });
-
-    // Mark saved in UI state
-    if (toSave.length > 0) {
-      setFrameStates(prev => {
-        const next = { ...prev };
-        toSave.forEach(f => { next[f.id] = { ...next[f.id], step: 'saved' }; });
-        return next;
-      });
+      parent.postMessage({ pluginMessage: { type: 'SAVE_SLICE_DATA', frameId: targetFrame.id, data: sliceData } }, '*');
+      setFrameStates(prev => ({ ...prev, [targetFrame.id]: { ...prev[targetFrame.id], step: 'saved' } }));
     }
 
+    setApplyBatchProgress(null);
     setTimeout(() => onSwitchToTech(), 300);
   }, [frames, frameStates, applyThenCompress, onSwitchToTech]);
 
