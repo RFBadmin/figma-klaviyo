@@ -1,407 +1,390 @@
-# Figma → Klaviyo Plugin
+# Figma → Klaviyo Plugin — Setup & Usage Guide
 
-A Figma plugin that lets designers export email designs directly into Klaviyo as production-ready templates. It slices email frames into horizontal image bands, compresses them, and pushes them to Klaviyo — all from inside Figma.
-
----
-
-## What It Does
-
-### Designer Mode
-1. Lists every email frame (500–700 px wide) on the current Figma page
-2. Designer selects which frames to process (all checked by default)
-3. Clicks **"✦ Slice Frame"** — the plugin:
-   - Exports the full frame as a PNG at 2× scale
-   - Reads every layer's exact bounding box from the Figma API
-   - Sends both to the backend, where Claude Vision groups the layers into logical sections
-4. A visual preview shows the slices overlaid on the design
-5. Designer can:
-   - **Drag** the blue boundary handles to reposition cuts
-   - **Click "+"** on any slice to split it in half
-   - **Double-click** a label to rename a slice
-   - **Click "✕"** to delete a slice (merges into adjacent slice)
-   - **Re-analyze** to re-run AI slicing
-6. Clicks **"Compress →"** — backend compresses each slice with Pillow (JPEG or PNG based on image content)
-7. Compression results show per-slice size, status (optimal / good / warning / failed) and total
-8. Clicks **"Save →"** — slice data is saved into Figma node metadata
-
-### Tech Mode
-1. Loads the saved slice data from whichever frame is active
-2. Tech team edits per-slice **alt text** and **link URLs** in a table
-3. Chooses push destination: **Template only** or **Template + Campaign**
-4. Clicks **"Push to Klaviyo →"**:
-   - Each slice image is uploaded to Klaviyo's CDN
-   - A responsive HTML email is built (table-based, 600 px wide)
-   - A Klaviyo email template is created
-   - Optionally a scheduled campaign is created
-5. Returns direct links to the created template / campaign in Klaviyo
+> Complete installation and usage instructions for designers and the Klaviyo team.
 
 ---
 
-## Architecture
+## Table of Contents
 
-```
-plugin/                      ← Figma plugin (TypeScript + Preact)
-│
-├── src/
-│   ├── code.ts              ← Figma sandbox (plugin backend)
-│   ├── ui.tsx               ← Plugin UI root
-│   ├── ui.html              ← HTML shell + all CSS
-│   ├── types/index.ts       ← Shared types (Slice, SliceData, messages)
-│   ├── utils/
-│   │   ├── figma-api.ts     ← Figma node helpers (getAllEmailFrames, etc.)
-│   │   ├── export.ts        ← uint8ArrayToBase64 helper
-│   │   └── metadata.ts      ← saveSliceData / loadSliceData (Figma storage)
-│   └── components/
-│       ├── DesignerMode.tsx  ← Full designer workflow
-│       ├── SlicePreview.tsx  ← Visual slice editor (drag, split, delete, rename)
-│       ├── TechMode.tsx      ← Klaviyo push workflow
-│       └── KlaviyoConfig.tsx ← Template / campaign configuration form
-│
-└── dist/                    ← Compiled output (committed, loaded by Figma)
-    ├── code.js
-    └── ui.html
-
-backend/                     ← Flask API (Python)
-│
-├── app.py                   ← Flask app, CORS, blueprint registration
-├── routes/
-│   ├── analyze.py           ← POST /api/analyze   (AI slicing)
-│   ├── compress.py          ← POST /api/compress  (image compression)
-│   └── klaviyo.py           ← GET  /api/klaviyo/lists
-│                               POST /api/klaviyo/preview
-│                               POST /api/klaviyo/push
-├── services/
-│   ├── claude_vision.py     ← Claude Vision — groups layer bands into slices
-│   ├── squoosh.py           ← Pillow-based image compression (JPEG/PNG)
-│   ├── klaviyo_client.py    ← Klaviyo REST API client
-│   └── template_builder.py  ← Builds Klaviyo-compatible HTML email
-└── utils/
-    └── storage.py           ← TempStorage — serves compressed images via /temp/<file>
-
-Dockerfile                   ← python:3.12-slim, no Node.js needed
-railway.toml                 ← Railway deploy config (Dockerfile builder)
-```
+1. [Prerequisites](#prerequisites)
+2. [Install Git](#1-install-git)
+3. [Install Node.js](#2-install-nodejs)
+4. [Clone the Repository](#3-clone-the-repository)
+5. [Build the Plugin](#4-build-the-plugin)
+6. [Load the Plugin in Figma](#5-load-the-plugin-in-figma)
+7. [Backend Setup (Dev Only)](#6-backend-setup-dev-only)
+8. [Using the Plugin — Designer Mode](#7-using-the-plugin--designer-mode)
+9. [Using the Plugin — Tech Mode](#8-using-the-plugin--tech-mode)
+10. [Klaviyo API Key Setup](#9-klaviyo-api-key-setup)
+11. [Troubleshooting](#troubleshooting)
+12. [Quick Reference — Terminal Commands](#quick-reference--terminal-commands)
 
 ---
 
-## Tech Stack
+## Prerequisites
 
-| Layer | Technology |
-|---|---|
-| Plugin UI | Preact (JSX), TypeScript, esbuild |
-| Plugin sandbox | Figma Plugin API (TypeScript) |
-| Backend | Python 3.12, Flask, Gunicorn |
-| AI slicing | Anthropic Claude Haiku (claude-haiku-4-5) via `anthropic` SDK |
-| Image compression | Pillow (JPEG progressive + PNG optimize) |
-| Klaviyo integration | Klaviyo REST API |
-| Hosting | Railway (Docker, `python:3.12-slim`) |
+You need the following installed on your machine:
 
----
-
-## How Slicing Works
-
-### Step 1 — Layer bands (`code.ts`)
-`computeSliceBands()` walks the frame's direct children, reads each node's `absoluteBoundingBox`, and returns merged vertical bands:
-
-- Overlapping or nearly-adjacent bands (≤8 px gap) are merged
-- Gaps between bands are absorbed into adjacent bands at their midpoints
-- First band always starts at `y=0`, last band always ends at `frameHeight`
-- If the whole frame collapses to one band (e.g. a single wrapping group), recurses one level deeper
-
-### Step 2 — AI grouping (`GROUP_PROMPT` in `claude_vision.py`)
-The backend receives the layer bands + the full-frame image. Claude sees:
-- The exact pixel positions of every band
-- The actual design image
-
-It groups consecutive bands into logical email sections (e.g. `header`, `hero_banner`, `cta`, `footer`) and returns `{ groups: [{ name, band_indices[], alt_text }] }`.
-
-The pixel positions of the first and last band in each group become the slice boundaries — exact, no pixel guessing.
-
-### Step 3 — Fallback (`SLICE_PROMPT`)
-If no layer bands are available, Claude estimates boundaries from pixels alone. Less accurate, used as fallback only.
+| Tool | Required Version | Download |
+|------|-----------------|----------|
+| Git | Any recent version | https://git-scm.com/downloads |
+| Node.js | 18 or 20 (LTS) | https://nodejs.org |
+| Figma Desktop App | Latest | https://www.figma.com/downloads |
+| Python | 3.12+ (backend/dev only) | https://www.python.org/downloads |
 
 ---
 
-## API Endpoints
+## 1. Install Git
 
-### `POST /api/analyze`
-Analyze a frame and return slice boundaries.
-
-**Request:**
-```json
-{
-  "image_base64": "<PNG base64>",
-  "frame_width": 600,
-  "frame_height": 2844,
-  "layer_bands": [
-    { "name": "Header", "y_start": 0, "y_end": 120 },
-    { "name": "Hero", "y_start": 120, "y_end": 680 }
-  ]
-}
-```
-
-**Response:**
-```json
-{
-  "slices": [
-    { "name": "header", "y_start": 0, "y_end": 120, "alt_text": "Header section" },
-    { "name": "hero_banner", "y_start": 120, "y_end": 680, "alt_text": "Hero image" }
-  ],
-  "analysis": "Grouped 6 bands into 4 logical sections"
-}
-```
-
----
-
-### `POST /api/compress`
-Compress a batch of slice images with Pillow.
-
-**Request:**
-```json
-{
-  "slices": [
-    { "id": "slice_1", "name": "hero", "image_base64": "<PNG base64>" }
-  ],
-  "settings": { "target_size_kb": 100, "max_size_kb": 200 }
-}
-```
-
-**Response:**
-```json
-{
-  "compressed": [
-    {
-      "id": "slice_1",
-      "name": "hero",
-      "original_size": 245000,
-      "compressed_size": 87000,
-      "reduction_percent": 64,
-      "width": 1200,
-      "height": 1120,
-      "format": "jpeg",
-      "status": "optimal",
-      "warnings": [],
-      "temp_url": "https://figma-klaviyo-production.up.railway.app/temp/slice_1_1710000000.jpg",
-      "passed_validation": true
-    }
-  ],
-  "summary": { "total_original": 245000, "total_compressed": 87000, "total_reduction_percent": 64, "slice_count": 1, "passed_count": 1, "warning_count": 0, "failed_count": 0 },
-  "validation": { "status": "passed", "total_size_kb": 87, "target_kb": 500 },
-  "recommendations": []
-}
-```
-
-**Compression logic:**
-- Detect format: `< 5 000 unique colours → PNG (lossless)`, otherwise `JPEG`
-- JPEG: start at quality 82, reduce by 10 per attempt (minimum 50) until ≤ 100 KB
-- PNG: if still > 200 KB after optimize, auto-switch to JPEG
-- Original dimensions are always preserved (no resizing)
-
----
-
-### `GET /api/klaviyo/lists`
-Returns all Klaviyo lists. Requires `X-Klaviyo-Key: pk_...` header.
-
-### `POST /api/klaviyo/preview`
-Returns the generated HTML for preview. No API key needed.
-
-### `POST /api/klaviyo/push`
-Full push: upload images → build HTML → create template → (optionally) create campaign.
-Requires `X-Klaviyo-Key: pk_...` header.
-
----
-
-## Plugin Message Protocol
-
-Messages pass between the Figma sandbox (`code.ts`) and the UI as `pluginMessage` objects via `parent.postMessage`.
-
-### Plugin → UI
-
-| Type | Payload | Triggered by |
-|---|---|---|
-| `ALL_FRAMES_LOADED` | `data[]` (all page frames) | On open, page change, canvas deselect |
-| `FRAMES_SELECTED` | `data[]` (selected frames only) | Canvas selection changes |
-| `FRAME_EXPORTED` | `data: string` (base64 PNG) | `EXPORT_FRAME` |
-| `FRAME_LAYOUT` | `bands[], frameHeight` | `GET_FRAME_LAYOUT` |
-| `SLICE_DATA_SAVED` | — | `SAVE_SLICE_DATA` |
-| `SLICE_DATA_LOADED` | `data: SliceData` | `LOAD_SLICE_DATA` |
-| `KLAVIYO_KEY_LOADED` | `key: string \| null` | `GET_KLAVIYO_KEY` |
-| `KLAVIYO_KEY_SAVED` | — | `SAVE_KLAVIYO_KEY` |
-| `USER_INFO` | `name: string` | `GET_USER_INFO` |
-| `ERROR` | `message: string` | Any sandbox error |
-
-### UI → Plugin
-
-| Type | Payload | Purpose |
-|---|---|---|
-| `GET_ALL_FRAMES` | — | Fetch all email frames on page |
-| `EXPORT_FRAME` | `frameId` | Export frame PNG at 2× scale |
-| `GET_FRAME_LAYOUT` | `frameId` | Compute layer bands |
-| `SAVE_SLICE_DATA` | `frameId, data` | Save slices to node metadata |
-| `LOAD_SLICE_DATA` | `frameId` | Load slices from node metadata |
-| `GET_KLAVIYO_KEY` | — | Load saved API key from Figma storage |
-| `SAVE_KLAVIYO_KEY` | `key` | Save API key to Figma storage |
-| `GET_USER_INFO` | — | Get current Figma username |
-| `CLOSE_PLUGIN` | — | Close the plugin |
-
----
-
-## Data Model
-
-### `Slice`
-```typescript
-interface Slice {
-  id: string;               // "slice_1710000000_0"
-  name: string;             // "hero_banner"
-  y_start: number;          // pixels from top of frame
-  y_end: number;
-  alt_text: string;         // used in <img alt="...">
-  compressed_url?: string;  // temp URL after compression step
-  klaviyo_url?: string;     // CDN URL after push to Klaviyo
-  link?: string;            // href for the slice's <a> wrapper
-}
-```
-
-### `SliceData` (persisted in Figma node metadata)
-```typescript
-interface SliceData {
-  version: '1.0.0';
-  created_by: 'designer';
-  created_at: string;      // ISO 8601
-  frame_id: string;
-  frame_name: string;
-  slices: Slice[];
-  status: 'draft' | 'ready' | 'pushed';
-}
-```
-
----
-
-## Authentication
-
-Each team member enters their own **Klaviyo Private API key** (`pk_...`) once in Tech Mode.
-
-- Saved to `figma.clientStorage` — local to their Figma account on their machine
-- Never stored on the backend or in any database
-- Sent on every request to `/api/klaviyo/*` as the `X-Klaviyo-Key` header
-- Validated on the backend: must start with `pk_`
-
----
-
-## Frame Selection Behaviour
-
-| Figma canvas state | Plugin shows |
-|---|---|
-| Nothing selected | All email frames on the page (full checklist) |
-| One or more email frames selected | Only those frames |
-| Selection changed to non-email frame | Full page list restored |
-| Page switched | Full list of frames on new page |
-
----
-
-## Local Development
-
-### Plugin
+**macOS:**
 ```bash
-cd plugin
+# Check if already installed
+git --version
+
+# Install via Homebrew (if not installed)
+brew install git
+```
+
+**Windows:**
+Download and run the installer from https://git-scm.com/downloads
+During install, choose **"Git Bash"** and **"Use Git from the command line"**.
+
+**Verify:**
+```bash
+git --version
+# Expected: git version 2.x.x
+```
+
+---
+
+## 2. Install Node.js
+
+Download **Node.js v20 LTS** from https://nodejs.org
+
+**Verify after installing:**
+```bash
+node --version
+# Expected: v20.x.x
+
+npm --version
+# Expected: 10.x.x
+```
+
+---
+
+## 3. Clone the Repository
+
+Open **Terminal** (macOS) or **Git Bash** / **Command Prompt** (Windows):
+
+```bash
+# Navigate to where you want the project saved
+cd ~/Desktop
+
+# Clone the repository
+git clone https://github.com/RFBadmin/figma-klaviyo.git
+
+# Enter the project folder
+cd figma-klaviyo
+```
+
+To get the latest changes in the future:
+```bash
+cd figma-klaviyo
+git pull origin main
+```
+
+---
+
+## 4. Build the Plugin
+
+> The `dist/` folder is already committed to the repo — **you do NOT need to rebuild unless you make code changes.**
+> If you just want to use the plugin, skip to step 5.
+
+To install dependencies and build from source:
+
+```bash
+# Make sure you are inside the plugin folder
+cd figma-klaviyo/plugin
+
+# Install dependencies
 npm install
-npm run build      # one-time build → dist/
-npm run dev        # watch mode (rebuilds on save)
+
+# Build once (creates dist/code.js and dist/ui.html)
+npm run build
+
+# OR — watch for file changes during development
+npm run dev
 ```
 
-Load in Figma: **Plugins → Development → Import plugin from manifest** → select `plugin/manifest.json`
+After building, confirm these two files exist:
+```
+plugin/dist/code.js
+plugin/dist/ui.html
+```
 
-The compiled `dist/` folder is committed to the repo so the plugin works without a build step.
+---
 
-### Backend
+## 5. Load the Plugin in Figma
+
+> You must use the **Figma Desktop App** — the browser version does not support development plugins.
+
+1. Open **Figma Desktop App**
+2. Open any Figma file
+3. Go to **Main Menu (☰) → Plugins → Development → Import plugin from manifest…**
+4. In the file picker, navigate to your cloned folder and select:
+   ```
+   figma-klaviyo/plugin/manifest.json
+   ```
+5. The plugin **"Figma → Klaviyo"** now appears under **Plugins → Development**
+
+**To run the plugin:**
+- **Main Menu → Plugins → Development → Figma → Klaviyo**
+- Or **right-click** on the Figma canvas → **Plugins → Development → Figma → Klaviyo**
+
+**To re-open after closing:**
+Same steps above — or use the keyboard shortcut shown next to the plugin name in the menu.
+
+---
+
+## 6. Backend Setup (Dev Only)
+
+> **Skip this section if you are using the hosted backend.**
+> The plugin is pre-configured to use the production backend at:
+> `https://figma-klaviyo-production.up.railway.app`
+>
+> No backend setup is needed for designers or the Klaviyo team — the backend runs in the cloud.
+
+If you need to run the backend locally (developers only):
+
 ```bash
-cd backend
+# Navigate to the backend folder
+cd figma-klaviyo/backend
+
+# Create a Python virtual environment
 python -m venv .venv
-# macOS/Linux:
+
+# Activate it:
+# macOS / Linux:
 source .venv/bin/activate
-# Windows:
+
+# Windows (Command Prompt):
 .venv\Scripts\activate
 
+# Windows (Git Bash):
+source .venv/Scripts/activate
+
+# Install Python dependencies
 pip install -r requirements.txt
+
+# Copy the example env file
+cp .env.example .env
 ```
 
-Create `backend/.env`:
+Open `.env` in any text editor and fill in your keys:
 ```
-ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
 BASE_URL=http://localhost:8080
 FLASK_DEBUG=1
 ```
 
+Start the backend server:
 ```bash
 python app.py
-# Server starts at http://localhost:8080
+# Server now running on http://localhost:8080
 ```
 
 ---
 
-## Deployment (Railway)
+## 7. Using the Plugin — Designer Mode
 
-The repo uses a `Dockerfile` + `railway.toml` at the root. Railway auto-deploys on every push to `main`.
+Designer Mode is for the **design team**. It slices the email frame into image sections and prepares them for Klaviyo.
 
-**`railway.toml`:**
-```toml
-[build]
-builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
+### Step 1 — Prepare your Figma frame
 
-[deploy]
-startCommand = "gunicorn --bind 0.0.0.0:8080 --workers 2 --timeout 120 app:app"
-```
+- Your email design must be inside a **Frame** that is **500–700px wide**
+- Name your frame clearly (e.g. `Black Friday Email 2025`)
+- The plugin auto-detects frames of this width on the current page
 
-**`Dockerfile`:**
-```dockerfile
-FROM python:3.12-slim
-WORKDIR /app
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY backend/ .
-ENV PYTHONUNBUFFERED=1
-EXPOSE 8080
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--timeout", "120", "app:app"]
-```
+### Step 2 — Open the plugin and select frames
 
-**Environment variables to set in Railway:**
-```
-ANTHROPIC_API_KEY=sk-ant-...
-BASE_URL=https://figma-klaviyo-production.up.railway.app
-```
+- **Select a frame on canvas first** → plugin shows only that frame
+- **Select nothing** → plugin shows all email frames on the page with checkboxes
+- Use the checkboxes to choose which frames to process
+- Click **All** or **None** to quickly check/uncheck everything
 
-**Live URL:** `https://figma-klaviyo-production.up.railway.app`
+### Step 3 — Slice the frames
+
+- Single frame: click **✦ Slice Frame**
+- Multiple frames: click **✦ Slice All N Frames**
+- The AI analyzes your design and suggests where to cut the email into image slices
+- A preview panel appears showing your email with **blue dashed cut lines**
+
+### Step 4 — Adjust slices (optional)
+
+In the preview panel:
+
+| Action | How |
+|--------|-----|
+| Move a cut line | Drag the **blue handle** up or down |
+| Split a slice into two | Click **+** on the right side of any slice |
+| Delete a slice | Click **✕** on the slice label |
+| Rename a slice | Double-click the slice label |
+| Re-run AI slicing | Click **↻ Re-analyze** |
+
+### Step 5 — Using Figma native slice nodes (optional)
+
+If you draw **Slice** rectangles manually using Figma's Slice tool on a frame, the plugin detects and uses them automatically — no AI analysis needed.
+
+### Step 6 — Compression Settings
+
+Before applying, configure the compression settings (applies to **all frames**):
+
+- **Output Format:** Auto (recommended) / JPEG / PNG / WebP
+- **Quality:** 50–100% slider — higher means sharper but larger files
+- **Max size per slice:** 50 KB – 5 MB limit per image
+
+### Step 7 — Apply, Compress & Push to Klaviyo
+
+Click **✦ Apply, Compress & Push All N Frames to Klaviyo →**
+
+The plugin will:
+1. Apply the slice boundaries to the Figma canvas as Slice nodes
+2. Export and compress each slice image
+3. Save everything to the frame
+4. Automatically switch to **Tech Mode**
 
 ---
 
-## Frame Requirements
+## 8. Using the Plugin — Tech Mode
 
-Figma frames must be **500–700 px wide** to be listed. Standard email width is 600 px.
+Tech Mode is for the **tech / Klaviyo team**. It pushes the prepared email to Klaviyo as a template or campaign.
+
+### Step 1 — Enter your Klaviyo API key
+
+On first use:
+1. Click the **Tech 🔒** tab
+2. Enter your Klaviyo **Private API Key** (starts with `pk_`)
+   See [Section 9](#9-klaviyo-api-key-setup) for how to get this key
+3. Click **Save Key**
+
+Your key is stored locally in Figma — it is never stored on any server except Klaviyo's own API.
+
+### Step 2 — Review slice configuration
+
+A table shows all slices across all pushed frames. For each slice, you can set:
+
+- **Alt Text** — screen reader description for accessibility (required for good email practice)
+- **Link** — URL that opens when the image is clicked in the email (leave blank for no link)
+
+### Step 3 — Choose mode: Template or Campaign
+
+**Template only** (creates a reusable template in Klaviyo):
+- Enter a **Template Name**
+
+**Template + Campaign** (creates a template AND schedules/sends a campaign):
+- Template Name
+- Campaign Name
+- Subject Line
+- Preview Text
+- From Name + From Email
+- Select the **List** to send to
+- Optional: set a **Send Time** (leave blank to save as draft)
+
+### Step 4 — Preview HTML (optional)
+
+Click **Preview HTML** to see exactly how the email will render before sending anything to Klaviyo.
+
+### Step 5 — Push to Klaviyo
+
+Click **Push to Klaviyo**.
+
+The plugin will:
+1. Upload each slice image to Klaviyo's CDN
+2. Build the HTML email template
+3. Create the template in Klaviyo
+4. Create the campaign (if campaign mode selected)
+
+On success you'll see:
+- **View Template →** — opens the template in Klaviyo's drag & drop editor
+- **View Campaign →** — opens the campaign in Klaviyo (campaign mode only)
+
+> **Important:** Always use the **View Template →** link from the plugin to open the template in drag & drop mode. Opening the template directly from Klaviyo's Content → Templates page may show the HTML editor instead — this is a Klaviyo website behaviour, not a plugin issue.
 
 ---
 
-## Compression Targets (Klaviyo Best Practices)
+## 9. Klaviyo API Key Setup
 
-| Per-slice size | Status |
-|---|---|
-| ≤ 100 KB | Optimal |
-| 101–150 KB | Good |
-| 151–200 KB | Warning |
-| > 200 KB | Failed — split the slice |
-| **Total ≤ 500 KB** | Email passes overall validation |
+1. Log in to your Klaviyo account at https://www.klaviyo.com
+2. Go to **Account (bottom-left avatar) → Settings → API Keys**
+3. Click **Create Private API Key**
+4. Give it a name (e.g. `Figma Plugin`)
+5. Set these scopes:
+
+   | Scope | Permission |
+   |-------|-----------|
+   | Templates | Full Access |
+   | Campaigns | Full Access |
+   | Lists | Read-only |
+
+6. Click **Create**
+7. Copy the key — it starts with `pk_`
+8. Paste it into the plugin: **Tech Mode → API Key field → Save Key**
 
 ---
 
-## Known Issues Fixed
+## Troubleshooting
 
-| Bug | Root cause | Fix applied |
-|---|---|---|
-| AI cutting through text | Claude Vision only sees pixels, estimates boundaries badly | Hybrid: Figma layer boxes give exact positions, AI only groups them |
-| Spacer slices created between sections | `computeSliceBands` inserted spacer objects for gaps | Gaps absorbed into adjacent bands at midpoints |
-| "Analyze" button not showing | `code.ts` sent `FRAMES_SELECTED` but UI only handled `FRAME_SELECTED` | Added `FRAMES_SELECTED` case to `ui.tsx` |
-| Canvas selection wiped full list | `selectionchange` always replaced the full list with selected frames only | When nothing is selected, `selectionchange` now restores the full page list |
-| Duplicate slice buttons | `FrameWorkflow` rendered an extra "Slice This Frame" button alongside the checklist button | `FrameWorkflow` hidden when `step === 'select'` |
-| "+ Add Slice" added to bottom only | `handleAddSlice` always split the last slice | Replaced with per-slice "+" button on right side of each slice row |
-| `@squoosh/lib` crash (Node 18/22) | `@squoosh/lib` tries to set `globalThis.navigator` (read-only in Node 21+) and uses `fetch()` for WASM loading (broken on Node 18) | Removed `@squoosh/lib` entirely; replaced with pure Pillow compression in Python |
-| `exportSlices` "not a function" error | Function tried to clone Figma nodes which failed for some node types | Replaced with HTML Canvas `drawImage` crop in the UI |
+| Problem | Solution |
+|---------|----------|
+| Plugin not appearing in Figma | Make sure you imported `manifest.json`, not `package.json` |
+| "No email frames found" | Ensure your frame is between 500–700px wide |
+| Slicing spinner never stops | Check your internet connection; the backend may be cold-starting (wait 30s and retry) |
+| Klaviyo push fails with auth error | Verify your API key starts with `pk_` and has Templates + Campaigns write access |
+| Template opens in HTML editor on Klaviyo website | Use the **View Template →** link from the plugin instead of navigating manually |
+| `npm run build` fails | Delete `plugin/node_modules`, run `npm install` again, then `npm run build` |
+| `python app.py` fails | Make sure virtual environment is activated and `pip install -r requirements.txt` completed |
+| Frame shows "sliced" but no slice nodes on canvas | Delete the frame's plugin data: re-open plugin, the state will reset automatically |
+
+---
+
+## Quick Reference — Terminal Commands
+
+```bash
+# ── First-time setup ────────────────────────────────────────────────────────
+
+# Clone the repository
+git clone https://github.com/RFBadmin/figma-klaviyo.git
+cd figma-klaviyo
+
+# Build the plugin (only needed if making code changes)
+cd plugin
+npm install
+npm run build
+
+# ── Day-to-day ───────────────────────────────────────────────────────────────
+
+# Get latest changes from the repo
+git pull origin main
+
+# Rebuild after pulling changes
+cd plugin && npm run build
+
+# Watch mode (auto-rebuilds on save — for developers)
+cd plugin && npm run dev
+
+# ── Backend (local dev only) ─────────────────────────────────────────────────
+
+cd figma-klaviyo/backend
+
+# Create and activate virtual environment
+python -m venv .venv
+source .venv/bin/activate        # macOS/Linux
+# or: .venv\Scripts\activate     # Windows
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Start the server
+python app.py
+# → Running on http://localhost:8080
+```
