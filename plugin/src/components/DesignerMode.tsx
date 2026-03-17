@@ -92,11 +92,15 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
       frames.forEach(f => {
         const existing = next[f.id];
 
-        // If this frame had state but existingSliceData is now null and
-        // hasFigmaSlices is false, it means slice nodes were deleted from the
-        // canvas and code.ts cleared the pluginData — reset to fresh state.
+        // If this frame was backed by Figma slice nodes (figmaSliceImages !== null)
+        // but those nodes were deleted from canvas, reset to fresh state.
+        // AI-sliced frames (figmaSliceImages === null) must NEVER be reset here —
+        // this effect fires whenever ANY frame's hasFigmaSlices changes (e.g. when
+        // CREATE_SLICE_NODES runs for frame1), which would incorrectly wipe frame2's
+        // preview state mid-batch if we didn't check figmaSliceImages.
         if (existing && existing.step !== 'select' && existing.step !== 'analyzing'
-            && !f.hasFigmaSlices && !f.existingSliceData) {
+            && !f.hasFigmaSlices && !f.existingSliceData
+            && existing.figmaSliceImages !== null) {
           next[f.id] = defaultState();
           return;
         }
@@ -344,18 +348,26 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
   const applyCompressSaveAll = useCallback(async () => {
     const previewTargets = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'preview');
     if (previewTargets.length === 0) {
-      setTimeout(() => onSwitchToTech(), 300);
+      // Refresh frame data so TechMode sees current existingSliceData, then switch.
+      parent.postMessage({ pluginMessage: { type: 'GET_SELECTED_FRAME' } }, '*');
+      setTimeout(() => onSwitchToTech(), 600);
       return;
     }
 
-    setApplyBatchProgress({ current: 0, total: previewTargets.length });
-    for (let i = 0; i < previewTargets.length; i++) {
-      setApplyBatchProgress({ current: i, total: previewTargets.length });
-      const targetFrame = previewTargets[i];
-      const targetState = frameStatesRef.current[targetFrame.id] ?? defaultState();
+    // Capture every target frame + its state RIGHT NOW, before any async work begins.
+    // CREATE_SLICE_NODES triggers documentchange → code.ts re-sends frame data →
+    // the frames useEffect may run mid-batch. Capturing upfront guarantees we always
+    // process each frame with its correct preview-state slices, not a stale/reset copy.
+    const targets = previewTargets.map(f => ({
+      frame: f,
+      state: { ...(frameStatesRef.current[f.id] ?? defaultState()) }
+    }));
 
-      // applyThenCompress returns data directly — no React state re-read needed,
-      // so all frames are saved correctly regardless of React's render timing.
+    setApplyBatchProgress({ current: 0, total: targets.length });
+    for (let i = 0; i < targets.length; i++) {
+      setApplyBatchProgress({ current: i, total: targets.length });
+      const { frame: targetFrame, state: targetState } = targets[i];
+
       const result = await applyThenCompress(targetFrame, targetState);
       if (!result) continue;
 
@@ -379,7 +391,11 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
     }
 
     setApplyBatchProgress(null);
-    setTimeout(() => onSwitchToTech(), 300);
+
+    // Re-query frame data from Figma so TechMode's existingSliceData is fresh
+    // (pluginData was just written above; the UI's frames prop still has the old values).
+    parent.postMessage({ pluginMessage: { type: 'GET_SELECTED_FRAME' } }, '*');
+    setTimeout(() => onSwitchToTech(), 600);
   }, [frames, frameStates, applyThenCompress, onSwitchToTech]);
 
 
