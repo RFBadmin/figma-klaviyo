@@ -703,10 +703,14 @@
       setFrameStates((prev) => {
         const next = __spreadValues({}, prev);
         frames.forEach((f4) => {
+          var _a2;
           const existing = next[f4.id];
-          if ((existing == null ? void 0 : existing.figmaSliceImages) != null && !f4.hasFigmaSlices) {
-            next[f4.id] = defaultState();
-            return;
+          if (!f4.hasFigmaSlices && existing && existing.step !== "select") {
+            const usedFigmaNodes = existing.figmaSliceImages != null || ((_a2 = f4.existingSliceData) == null ? void 0 : _a2.source) === "figma_nodes";
+            if (usedFigmaNodes) {
+              next[f4.id] = defaultState();
+              return;
+            }
           }
           if (f4.existingSliceData && !existing) {
             const fromFigmaNodes = f4.existingSliceData.source === "figma_nodes";
@@ -804,22 +808,13 @@
     }), [patchState]);
     const sliceAllChecked = q2(() => __async(null, null, function* () {
       var _a2;
-      const targets = frames.filter((f4) => checkedIds.has(f4.id));
-      if (targets.length === 0) return;
-      const alreadySliced = targets.filter(
+      const targets = frames.filter(
         (f4) => {
-          var _a3;
-          return ((_a3 = frameStates[f4.id]) == null ? void 0 : _a3.step) && frameStates[f4.id].step !== "select" || f4.existingSliceData;
+          var _a3, _b2;
+          return checkedIds.has(f4.id) && ((_b2 = (_a3 = frameStates[f4.id]) == null ? void 0 : _a3.step) != null ? _b2 : "select") === "select";
         }
       );
-      if (alreadySliced.length > 0) {
-        const names = alreadySliced.map((f4) => f4.name).join(", ");
-        const plural = alreadySliced.length > 1;
-        const ok = window.confirm(
-          `"${names}" ${plural ? "already have" : "already has"} slices. Re-slicing will overwrite them. Continue?`
-        );
-        if (!ok) return;
-      }
+      if (targets.length === 0) return;
       userPickedRef.current = null;
       setActiveFrameId(targets[0].id);
       setBatchProgress({ current: 0, total: targets.length });
@@ -972,6 +967,12 @@
     const isBatching = batchProgress !== null;
     const isApplying = applyBatchProgress !== null;
     const checkedCount = checkedIds.size;
+    const unslicedCheckedCount = frames.filter(
+      (f4) => {
+        var _a2, _b2;
+        return checkedIds.has(f4.id) && ((_b2 = (_a2 = frameStates[f4.id]) == null ? void 0 : _a2.step) != null ? _b2 : "select") === "select";
+      }
+    ).length;
     const pendingCount = frames.filter((f4) => {
       var _a2, _b2;
       return ((_b2 = (_a2 = frameStates[f4.id]) == null ? void 0 : _a2.step) != null ? _b2 : "select") === "preview";
@@ -1081,9 +1082,9 @@
           );
         })
       ] }),
-      checkedCount > 0 && !isBatching && !isApplying && /* @__PURE__ */ u3("div", { class: "action-row", style: { marginBottom: "6px" }, children: /* @__PURE__ */ u3("button", { class: "btn-primary", style: { flex: 1 }, onClick: sliceAllChecked, children: [
+      unslicedCheckedCount > 0 && !isBatching && !isApplying && /* @__PURE__ */ u3("div", { class: "action-row", style: { marginBottom: "6px" }, children: /* @__PURE__ */ u3("button", { class: "btn-primary", style: { flex: 1 }, onClick: sliceAllChecked, children: [
         "\u2726 Slice ",
-        checkedCount > 1 ? `All ${checkedCount} Frames` : "Frame"
+        unslicedCheckedCount > 1 ? `All ${unslicedCheckedCount} Frames` : "Frame"
       ] }) }),
       pendingCount > 1 && !isBatching && !isApplying && /* @__PURE__ */ u3("div", { class: "action-row", style: { marginBottom: "6px" }, children: /* @__PURE__ */ u3("button", { class: "btn-secondary", style: { flex: 1 }, onClick: applyAndCompressAll, children: [
         "\u2726 Apply & Compress All ",

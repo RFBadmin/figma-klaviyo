@@ -89,10 +89,18 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
       frames.forEach(f => {
         const existing = next[f.id];
 
-        // Runtime reset: Figma slice nodes were deleted from canvas while plugin was open
-        if (existing?.figmaSliceImages != null && !f.hasFigmaSlices) {
-          next[f.id] = defaultState();
-          return;
+        // Reset if Figma slice nodes were deleted from canvas.
+        // Covers two cases:
+        //   1. Figma nodes were applied in this session (figmaSliceImages != null)
+        //   2. Frame was restored from saved data that came from Figma nodes (source === 'figma_nodes')
+        if (!f.hasFigmaSlices && existing && existing.step !== 'select') {
+          const usedFigmaNodes =
+            existing.figmaSliceImages != null ||
+            f.existingSliceData?.source === 'figma_nodes';
+          if (usedFigmaNodes) {
+            next[f.id] = defaultState();
+            return;
+          }
         }
 
         // On first load: restore saved slice data, but skip if Figma nodes are gone
@@ -217,20 +225,11 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
   }, [patchState]);
 
   const sliceAllChecked = useCallback(async () => {
-    const targets = frames.filter(f => checkedIds.has(f.id));
-    if (targets.length === 0) return;
-
-    const alreadySliced = targets.filter(f =>
-      (frameStates[f.id]?.step && frameStates[f.id].step !== 'select') || f.existingSliceData
+    // Only slice frames that haven't been sliced yet — already-sliced frames use Re-analyze
+    const targets = frames.filter(f =>
+      checkedIds.has(f.id) && (frameStates[f.id]?.step ?? 'select') === 'select'
     );
-    if (alreadySliced.length > 0) {
-      const names = alreadySliced.map(f => f.name).join(', ');
-      const plural = alreadySliced.length > 1;
-      const ok = window.confirm(
-        `"${names}" ${plural ? 'already have' : 'already has'} slices. Re-slicing will overwrite them. Continue?`
-      );
-      if (!ok) return;
-    }
+    if (targets.length === 0) return;
 
     // Reset user-pick tracker and show first target at batch start
     userPickedRef.current = null;
@@ -400,6 +399,9 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
   const isBatching = batchProgress !== null;
   const isApplying = applyBatchProgress !== null;
   const checkedCount = checkedIds.size;
+  const unslicedCheckedCount = frames.filter(f =>
+    checkedIds.has(f.id) && (frameStates[f.id]?.step ?? 'select') === 'select'
+  ).length;
   const pendingCount = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'preview').length;
   const resultsCount = frames.filter(f => (frameStates[f.id]?.step ?? 'select') === 'results').length;
 
@@ -483,11 +485,11 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
         })}
       </div>
 
-      {/* Slice all checked frames */}
-      {checkedCount > 0 && !isBatching && !isApplying && (
+      {/* Slice all un-sliced checked frames — hidden when all frames are already sliced */}
+      {unslicedCheckedCount > 0 && !isBatching && !isApplying && (
         <div class="action-row" style={{ marginBottom: '6px' }}>
           <button class="btn-primary" style={{ flex: 1 }} onClick={sliceAllChecked}>
-            ✦ Slice {checkedCount > 1 ? `All ${checkedCount} Frames` : 'Frame'}
+            ✦ Slice {unslicedCheckedCount > 1 ? `All ${unslicedCheckedCount} Frames` : 'Frame'}
           </button>
         </div>
       )}
