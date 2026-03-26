@@ -8,6 +8,9 @@ services:
     working_dir: /plugin
     volumes:
       - ./plugin:/plugin
+      # node_modules lives in a Docker-managed volume (not the macOS bind mount)
+      # This prevents "Permission denied" on esbuild and other binaries on Mac
+      - plugin_node_modules:/plugin/node_modules
     command: >
       sh -c "
         echo '──────────────────────────────────────' &&
@@ -49,3 +52,4 @@ services:
 
 volumes:
   backend_tmp:
+  plugin_node_modules:
