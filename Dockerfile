@@ -1,4 +1,4 @@
-FROM cgr.dev/chainguard/python:latest-dev
+FROM cgr.dev/chainguard/python:3.13-dev
 
 USER root
 
