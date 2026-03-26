@@ -1,24 +1,22 @@
-FROM node:22-alpine
+FROM cgr.dev/chainguard/python:latest-dev
 
-# Upgrade all Alpine packages to patch OS-level CVEs
-RUN apk upgrade --no-cache
+USER root
 
-# Install Python
-RUN apk add --no-cache python3 py3-pip
+# Install Node.js (required for sharp image compression at runtime)
+RUN apk add --no-cache nodejs npm
 
 WORKDIR /app
 
-# Install Node dependencies (@squoosh/lib — ignore overly-conservative engine check)
+# Install Node dependencies (sharp — pre-built musl binaries included)
 COPY package.json .
 RUN npm install --ignore-engines
 
 # Install Python dependencies
 COPY requirements.txt .
-RUN python3 -m venv /venv && /venv/bin/pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-ENV PATH="/venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8080

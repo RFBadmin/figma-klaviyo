@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Figma → Klaviyo — RFB Plugin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400&display=swap" rel="stylesheet" />
+<style>
+/* ── Reset ─────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  /* RFB Brand Palette — dark premium */
+  --rfb-bg:          #08070f;
+  --rfb-surface:     #0e0c1a;
+  --rfb-panel:       rgba(255,255,255,0.042);
+  --rfb-border:      rgba(255,255,255,0.08);
+  --rfb-border-hi:   rgba(255,255,255,0.14);
+
+  /* RFB Accent — #274eb6 brand blue */
+  --rfb-violet:      #274eb6;
+  --rfb-indigo:      #1e3d96;
+  --rfb-lavender:    #7fa3e8;
+  --rfb-glow:        rgba(39,78,182,0.38);
+
+  /* Text */
+  --t-1:  #f0f4ff;
+  --t-2:  #94a8cc;
+  --t-3:  #556080;
+
+  /* Status */
+  --green:  #34d399;
+  --amber:  #fbbf24;
+  --blue:   #818cf8;
+  --red:    #f87171;
+
+  --r-sm:   8px;
+  --r-md:   14px;
+  --r-lg:   20px;
+  --r-xl:   28px;
+  --ease:   cubic-bezier(0.4,0,0.2,1);
+  --t:      0.2s var(--ease);
+
+  --shadow: 0 4px 24px rgba(0,0,0,0.45), 0 1px 0 rgba(255,255,255,0.055) inset;
+  --shadow-glow: 0 0 48px var(--rfb-glow), 0 8px 32px rgba(0,0,0,0.5);
+}
+
+html, body {
+  min-height: 100vh;
+  font-family: 'Inter', system-ui, sans-serif;
+  background: var(--rfb-bg);
+  color: var(--t-1);
+  -webkit-font-smoothing: antialiased;
+  font-size: 14px;
+  overflow-x: hidden;
+}
+
+/* ── Ambient Background ─────────────────────────────────────────────── */
+.ambient {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
+}
+.orb {
+  position: absolute; border-radius: 50%; filter: blur(90px);
+  animation: drift 14s ease-in-out infinite alternate;
+}
+.orb-a { width: 700px; height: 700px; top: -280px; right: -180px;
+  background: radial-gradient(circle, rgba(39,78,182,0.28), transparent 70%); }
+.orb-b { width: 500px; height: 500px; bottom: -150px; left: -120px;
+  background: radial-gradient(circle, rgba(30,61,150,0.22), transparent 70%);
+  animation-delay: -7s; }
+.orb-c { width: 300px; height: 300px; top: 55%; left: 45%;
+  background: radial-gradient(circle, rgba(127,163,232,0.08), transparent 70%);
+  animation-delay: -3s; }
+@keyframes drift {
+  from { transform: translate(0,0) scale(1); }
+  to   { transform: translate(24px, 18px) scale(1.04); }
+}
+
+/* ── Glass Utility ──────────────────────────────────────────────────── */
+.glass {
+  background: var(--rfb-panel);
+  border: 1px solid var(--rfb-border);
+  backdrop-filter: blur(24px) saturate(1.5);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  box-shadow: var(--shadow);
+}
+.glass-lift {
+  transition: transform var(--t), box-shadow var(--t), border-color var(--t);
+}
+.glass-lift:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-glow);
+  border-color: var(--rfb-border-hi);
+}
+
+/* ── Shell ──────────────────────────────────────────────────────────── */
+.shell {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column;
+  min-height: 100vh;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 0 0 48px;
+}
+
+/* ── Top Bar ────────────────────────────────────────────────────────── */
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; gap: 16px;
+  padding: 0 28px; height: 60px;
+  background: rgba(8,7,15,0.75);
+  border-bottom: 1px solid var(--rfb-border);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+}
+
+.brand {
+  display: flex; align-items: center; gap: 9px;
+  font-weight: 800; font-size: 14px; letter-spacing: -0.4px;
+  color: var(--t-1); flex-shrink: 0;
+}
+.brand-mark {
+  width: 28px; height: 28px; border-radius: 7px;
+  background: linear-gradient(135deg, var(--rfb-indigo) 0%, var(--rfb-violet) 100%);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 900; color: #fff;
+  box-shadow: 0 0 18px var(--rfb-glow);
+  letter-spacing: -1px;
+}
+.brand-arrow {
+  color: var(--rfb-lavender); font-size: 11px; opacity: 0.7;
+}
+.brand-klaviyo { color: var(--rfb-lavender); }
+
+/* Mode tabs */
+.tabs {
+  display: flex; align-items: center; gap: 3px;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid var(--rfb-border);
+  border-radius: 100px; padding: 3px; margin: 0 auto;
+}
+.tab {
+  padding: 6px 20px; border-radius: 100px;
+  font-size: 12.5px; font-weight: 600; letter-spacing: 0.1px;
+  color: var(--t-3); cursor: pointer; border: none; background: none;
+  transition: var(--t); white-space: nowrap;
+}
+.tab.on {
+  background: linear-gradient(135deg, var(--rfb-indigo), var(--rfb-violet));
+  color: #fff;
+  box-shadow: 0 0 20px var(--rfb-glow), 0 2px 10px rgba(0,0,0,0.3);
+}
+.tab:not(.on):hover { color: var(--t-2); background: rgba(255,255,255,0.05); }
+
+/* Topbar right */
+.topbar-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.ib {
+  width: 34px; height: 34px; border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; cursor: pointer;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--rfb-border);
+  transition: var(--t); position: relative;
+}
+.ib:hover { background: rgba(255,255,255,0.08); transform: translateY(-1px); }
+.ndot {
+  position: absolute; top: 5px; right: 5px;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--rfb-violet); border: 1.5px solid var(--rfb-bg);
+  box-shadow: 0 0 8px var(--rfb-glow);
+}
+.ava {
+  width: 34px; height: 34px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--rfb-indigo), var(--rfb-violet));
+  border: 2px solid rgba(255,255,255,0.12);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: #fff; cursor: pointer;
+  box-shadow: 0 0 14px var(--rfb-glow); transition: var(--t);
+}
+.ava:hover { transform: translateY(-1px); box-shadow: 0 0 24px var(--rfb-glow); }
+
+/* ── Content ────────────────────────────────────────────────────────── */
+.content { padding: 28px 28px 0; display: flex; flex-direction: column; gap: 18px; }
+
+/* ── Page Header ─────────────────────────────────────────────────────── */
+.page-head { display: flex; flex-direction: column; gap: 4px; padding-bottom: 4px; }
+.page-title {
+  font-size: 22px; font-weight: 800; letter-spacing: -0.6px; color: var(--t-1);
+  line-height: 1.15;
+}
+.page-sub { font-size: 13px; color: var(--t-3); font-weight: 400; }
+.page-sub em { color: var(--rfb-lavender); font-style: normal; font-weight: 500; }
+
+/* ── Metric Cards ────────────────────────────────────────────────────── */
+.metrics { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
+.mc {
+  border-radius: var(--r-md); padding: 18px 20px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.mc-top { display: flex; align-items: flex-start; justify-content: space-between; }
+.mc-label { font-size: 11px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; color: var(--t-3); }
+.mc-icon {
+  width: 30px; height: 30px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center; font-size: 14px;
+}
+.ic-v  { background: rgba(39,78,182,0.14); }
+.ic-g  { background: rgba(52,211,153,0.10); }
+.ic-b  { background: rgba(129,140,248,0.12); }
+.mc-num {
+  font-size: 36px; font-weight: 800; letter-spacing: -2px; color: var(--t-1); line-height: 1;
+}
+.mc-foot { display: flex; align-items: center; gap: 8px; }
+.pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 9px; border-radius: 100px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.1px;
+}
+.pill-v { background: rgba(39,78,182,0.14); color: #7fa3e8; border: 1px solid rgba(39,78,182,0.22); }
+.pill-g { background: rgba(52,211,153,0.10); color: var(--green); border: 1px solid rgba(52,211,153,0.18); }
+.pill-a { background: rgba(251,191,36,0.10); color: var(--amber); border: 1px solid rgba(251,191,36,0.18); }
+.pill-b { background: rgba(129,140,248,0.10); color: var(--blue); border: 1px solid rgba(129,140,248,0.18); }
+.pill-r { background: rgba(248,113,113,0.10); color: var(--red); border: 1px solid rgba(248,113,113,0.18); }
+
+/* Progress bar */
+.prog-wrap { display: flex; flex-direction: column; gap: 5px; }
+.prog-track {
+  height: 3px; border-radius: 100px;
+  background: rgba(255,255,255,0.07); overflow: hidden;
+}
+.prog-fill {
+  height: 100%; border-radius: 100px;
+  background: linear-gradient(90deg, var(--rfb-indigo), var(--rfb-violet));
+  box-shadow: 0 0 8px var(--rfb-glow);
+  animation: grow 1s var(--ease) forwards;
+}
+@keyframes grow { from { width: 0; } }
+
+/* ── Card ─────────────────────────────────────────────────────────────── */
+.card { border-radius: var(--r-lg); padding: 22px 24px; }
+.card-hd {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px;
+}
+.card-title {
+  font-size: 13px; font-weight: 700; letter-spacing: 0.1px; color: var(--t-1);
+}
+.card-sub { font-size: 11.5px; color: var(--t-3); margin-top: 2px; }
+
+/* ── Frame List ───────────────────────────────────────────────────────── */
+.frame-list { display: flex; flex-direction: column; gap: 5px; }
+.frame-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 14px; border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  cursor: pointer; transition: var(--t);
+}
+.frame-row:hover { background: rgba(255,255,255,0.04); border-color: var(--rfb-border); }
+.frame-row.sel { background: rgba(39,78,182,0.08); border-color: rgba(39,78,182,0.22); }
+
+.chk {
+  width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0;
+  border: 1.5px solid rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.03);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: var(--t); font-size: 10px; font-weight: 700;
+}
+.chk.on { background: var(--rfb-indigo); border-color: var(--rfb-indigo); color: #fff; box-shadow: 0 0 10px var(--rfb-glow); }
+
+.frame-name { flex: 1; font-size: 13px; font-weight: 500; color: var(--t-1); }
+.frame-dim  { font-size: 11px; color: var(--t-3); font-variant-numeric: tabular-nums; margin-right: 6px; }
+
+.analyzing-anim { animation: blink 1.4s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.45} }
+
+/* ── Slice Preview ────────────────────────────────────────────────────── */
+.preview-area {
+  border-radius: var(--r-md);
+  background: rgba(255,255,255,0.025);
+  border: 1px solid var(--rfb-border);
+  height: 190px; position: relative; overflow: hidden;
+}
+.slice-viz { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.sz {
+  flex: 1; position: relative; border-bottom: 2px dashed rgba(129,140,248,0.55);
+  display: flex; align-items: center; padding: 0 14px;
+  transition: background var(--t);
+}
+.sz:last-child { border-bottom: none; }
+.sz:hover { background: rgba(129,140,248,0.05); }
+.sz-tag {
+  background: rgba(129,140,248,0.14);
+  border: 1px solid rgba(129,140,248,0.28);
+  color: var(--blue); font-size: 10.5px; font-weight: 600;
+  padding: 2px 8px; border-radius: 100px;
+}
+.sz-handle {
+  position: absolute; left: 0; right: 0; bottom: -5px; height: 10px;
+  z-index: 2; cursor: ns-resize; display: flex; align-items: center; justify-content: center;
+}
+.sz-handle::before {
+  content: ''; width: 28px; height: 3px; border-radius: 100px;
+  background: rgba(129,140,248,0.5); transition: var(--t);
+}
+.sz-handle:hover::before { background: var(--blue); width: 40px; box-shadow: 0 0 10px rgba(129,140,248,0.4); }
+
+.slice-rows { display: flex; flex-direction: column; gap: 5px; margin-top: 14px; }
+.sr {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-radius: var(--r-sm);
+  background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.05);
+  transition: var(--t);
+}
+.sr:hover { background: rgba(255,255,255,0.05); border-color: var(--rfb-border); }
+.sr-n   { font-size: 10.5px; color: var(--t-3); width: 14px; text-align: center; }
+.sr-nm  { flex: 1; font-size: 12.5px; font-weight: 500; }
+.sr-rng { font-size: 11px; color: var(--t-3); font-variant-numeric: tabular-nums; }
+.sr-acts { display: flex; gap: 4px; }
+.sab {
+  width: 22px; height: 22px; border-radius: 5px; font-size: 11px;
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07);
+  color: var(--t-3); display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: var(--t);
+}
+.sab:hover { background: rgba(255,255,255,0.09); color: var(--t-1); }
+.sab.del:hover { background: rgba(248,113,113,0.10); color: var(--red); border-color: rgba(248,113,113,0.2); }
+
+/* ── Compression ──────────────────────────────────────────────────────── */
+.fmt-pills { display: flex; gap: 6px; }
+.fp {
+  padding: 6px 15px; border-radius: 100px; font-size: 12px; font-weight: 500;
+  background: rgba(255,255,255,0.04); border: 1px solid var(--rfb-border);
+  color: var(--t-3); cursor: pointer; transition: var(--t);
+}
+.fp:hover { color: var(--t-2); background: rgba(255,255,255,0.07); }
+.fp.on {
+  background: rgba(39,78,182,0.14); border-color: rgba(39,78,182,0.3);
+  color: #7fa3e8; box-shadow: 0 0 12px rgba(39,78,182,0.12);
+}
+
+.sl-row { display: flex; flex-direction: column; gap: 8px; }
+.sl-lbl { display: flex; justify-content: space-between; font-size: 12px; color: var(--t-3); }
+.sl-lbl b { color: var(--rfb-lavender); font-weight: 600; }
+input[type=range] {
+  width: 100%; -webkit-appearance: none; appearance: none; height: 3px; border-radius: 100px;
+  outline: none; cursor: pointer;
+  background: linear-gradient(90deg, var(--rfb-indigo) 82%, rgba(255,255,255,0.1) 82%);
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+  background: #fff; box-shadow: 0 0 10px var(--rfb-glow), 0 2px 6px rgba(0,0,0,0.4);
+  cursor: pointer; transition: transform var(--t);
+}
+input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.25); }
+
+/* ── Inputs ───────────────────────────────────────────────────────────── */
+.gi {
+  width: 100%; padding: 10px 13px;
+  border-radius: var(--r-sm); font-size: 13px; font-family: inherit;
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09);
+  color: var(--t-1); outline: none; transition: var(--t);
+}
+.gi::placeholder { color: var(--t-3); }
+.gi:focus { border-color: rgba(91,79,207,0.5); background: rgba(39,78,182,0.05); box-shadow: 0 0 18px rgba(39,78,182,0.12); }
+
+.ig  { display: flex; flex-direction: column; gap: 5px; }
+.ilb { font-size: 11.5px; font-weight: 500; color: var(--t-3); }
+
+/* ── Buttons ──────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px 18px; border-radius: var(--r-sm); font-size: 13px; font-weight: 600;
+  cursor: pointer; border: none; transition: transform var(--t), box-shadow var(--t);
+  letter-spacing: 0.05px; white-space: nowrap; font-family: inherit;
+}
+.btn-p {
+  background: linear-gradient(135deg, var(--rfb-indigo), var(--rfb-violet));
+  color: #fff;
+  box-shadow: 0 0 24px var(--rfb-glow), 0 4px 12px rgba(0,0,0,0.3);
+}
+.btn-p:hover { transform: translateY(-2px); box-shadow: 0 0 40px var(--rfb-glow), 0 8px 20px rgba(0,0,0,0.35); }
+.btn-g {
+  background: linear-gradient(135deg, #059669, #10b981);
+  color: #fff;
+  box-shadow: 0 0 22px rgba(16,185,129,0.28), 0 4px 12px rgba(0,0,0,0.3);
+}
+.btn-g:hover { transform: translateY(-2px); box-shadow: 0 0 36px rgba(16,185,129,0.45), 0 8px 20px rgba(0,0,0,0.35); }
+.btn-ghost {
+  background: rgba(255,255,255,0.05); border: 1px solid var(--rfb-border);
+  color: var(--t-2);
+}
+.btn-ghost:hover { background: rgba(255,255,255,0.09); color: var(--t-1); }
+.btn-cta {
+  width: 100%; padding: 15px 24px; font-size: 14px; border-radius: var(--r-md);
+  background: linear-gradient(135deg, var(--rfb-indigo) 0%, var(--rfb-violet) 50%, var(--rfb-indigo) 100%);
+  background-size: 200%;
+  color: #fff; letter-spacing: -0.1px;
+  box-shadow: 0 0 40px var(--rfb-glow), 0 8px 24px rgba(0,0,0,0.4);
+  animation: shimmer 3s ease-in-out infinite;
+}
+.btn-cta:hover { transform: translateY(-3px); box-shadow: 0 0 64px var(--rfb-glow), 0 14px 32px rgba(0,0,0,0.45); }
+@keyframes shimmer { 0%,100%{background-position:0%} 50%{background-position:100%} }
+
+/* ── Row utils ────────────────────────────────────────────────────────── */
+.row { display: flex; align-items: center; gap: 10px; }
+.col { display: flex; flex-direction: column; gap: 14px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.divider { height: 1px; background: var(--rfb-border); margin: 6px 0; }
+
+/* ── Toggle All ───────────────────────────────────────────────────────── */
+.tog-all { display: flex; gap: 5px; }
+.tog-all button {
+  padding: 4px 11px; font-size: 11px; font-weight: 500; border-radius: 100px;
+  background: rgba(255,255,255,0.04); border: 1px solid var(--rfb-border);
+  color: var(--t-3); cursor: pointer; transition: var(--t); font-family: inherit;
+}
+.tog-all button:hover { color: var(--t-1); background: rgba(255,255,255,0.08); }
+
+/* ── Mode push tabs ───────────────────────────────────────────────────── */
+.push-tabs {
+  display: flex; gap: 4px;
+  background: rgba(255,255,255,0.03); border: 1px solid var(--rfb-border);
+  border-radius: 100px; padding: 3px; width: fit-content;
+}
+.ptab {
+  padding: 5px 16px; border-radius: 100px; font-size: 12px; font-weight: 500;
+  color: var(--t-3); cursor: pointer; transition: var(--t); border: none; background: none; font-family: inherit;
+}
+.ptab.on { background: rgba(255,255,255,0.07); color: var(--t-1); }
+
+/* ── Key saved ────────────────────────────────────────────────────────── */
+.key-saved {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 13px; border-radius: var(--r-sm);
+  background: rgba(52,211,153,0.07); border: 1px solid rgba(52,211,153,0.16);
+  font-size: 13px; color: var(--green); font-weight: 500;
+}
+.key-saved .kv {
+  flex: 1; font-family: 'Courier New', monospace; font-size: 12.5px;
+  letter-spacing: 0.5px; color: var(--t-2);
+}
+
+/* ── Table ────────────────────────────────────────────────────────────── */
+.gt { width: 100%; border-collapse: collapse; }
+.gt th {
+  text-align: left; padding: 9px 12px; font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.5px; text-transform: uppercase; color: var(--t-3);
+  border-bottom: 1px solid var(--rfb-border);
+}
+.gt td {
+  padding: 10px 12px; font-size: 12.5px; color: var(--t-1);
+  border-bottom: 1px solid rgba(255,255,255,0.035);
+}
+.gt tr:last-child td { border-bottom: none; }
+.gt tr:hover td { background: rgba(255,255,255,0.025); }
+.ti {
+  background: transparent; border: 1px solid transparent; width: 100%;
+  color: var(--t-1); font-size: 12.5px; font-family: inherit; outline: none;
+  padding: 4px 7px; border-radius: 5px; transition: var(--t);
+}
+.ti:focus { border-color: rgba(39,78,182,0.38); background: rgba(39,78,182,0.06); }
+.ti::placeholder { color: var(--t-3); }
+
+/* ── Success ──────────────────────────────────────────────────────────── */
+.success-wrap {
+  border-radius: var(--r-xl); padding: 32px;
+  text-align: center;
+  background: rgba(52,211,153,0.05);
+  border: 1px solid rgba(52,211,153,0.18);
+  box-shadow: 0 0 48px rgba(52,211,153,0.07), var(--shadow);
+}
+.success-ico {
+  width: 52px; height: 52px; margin: 0 auto 16px; border-radius: 50%;
+  background: rgba(52,211,153,0.12); border: 2px solid rgba(52,211,153,0.28);
+  display: flex; align-items: center; justify-content: center; font-size: 22px;
+  box-shadow: 0 0 28px rgba(52,211,153,0.25);
+  animation: pop 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards;
+}
+@keyframes pop { from{transform:scale(0.4);opacity:0} to{transform:scale(1);opacity:1} }
+.success-title { font-size: 18px; font-weight: 800; color: var(--green); letter-spacing: -0.4px; margin-bottom: 6px; }
+.success-sub { font-size: 13px; color: var(--t-3); margin-bottom: 22px; }
+.success-links { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.sl-link {
+  padding: 9px 20px; border-radius: var(--r-sm);
+  font-size: 13px; font-weight: 600;
+  background: rgba(52,211,153,0.08); border: 1px solid rgba(52,211,153,0.22);
+  color: var(--green); cursor: pointer; transition: var(--t);
+  text-decoration: none; display: inline-block;
+}
+.sl-link:hover { background: rgba(52,211,153,0.15); transform: translateY(-2px); }
+
+/* ── RFB Footer brand strip ───────────────────────────────────────────── */
+.rfb-strip {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 18px 28px; margin: 8px 28px 0;
+  border-radius: var(--r-md);
+  background: rgba(255,255,255,0.025); border: 1px solid var(--rfb-border);
+  font-size: 11px; color: var(--t-3);
+}
+.rfb-strip strong { color: var(--rfb-lavender); font-weight: 700; }
+.rfb-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--t-3); }
+
+/* ── View routing ─────────────────────────────────────────────────────── */
+.view { display: none; flex-direction: column; gap: 18px; }
+.view.on { display: flex; }
+
+/* ── Scrollbar ────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.09); border-radius: 100px; }
+
+/* ── Connection badge ─────────────────────────────────────────────────── */
+.conn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 100px;
+  background: rgba(52,211,153,0.08); border: 1px solid rgba(52,211,153,0.18);
+  font-size: 11px; font-weight: 500; color: var(--green);
+}
+.cdot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green); box-shadow: 0 0 8px rgba(52,211,153,0.5);
+  animation: cpulse 2.4s ease-in-out infinite;
+}
+@keyframes cpulse { 0%,100%{box-shadow:0 0 6px rgba(52,211,153,0.4)} 50%{box-shadow:0 0 14px rgba(52,211,153,0.7)} }
+
+/* Responsive */
+@media(max-width:620px){
+  .metrics{grid-template-columns:1fr 1fr}
+  .grid2{grid-template-columns:1fr}
+  .topbar{padding:0 16px}
+  .content{padding:18px 16px 0}
+  .rfb-strip{margin:8px 16px 0}
+}
+@media(max-width:440px){
+  .metrics{grid-template-columns:1fr}
+  .tabs .tab{padding:6px 14px;font-size:11.5px}
+}
+</style>
+</head>
+<body>
+
+<div class="ambient">
+  <div class="orb orb-a"></div>
+  <div class="orb orb-b"></div>
+  <div class="orb orb-c"></div>
+</div>
+
+<div class="shell">
+
+  <!-- ─── Top Bar ──────────────────────────────────────────────────── -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">RFB</div>
+      <span>Figma</span>
+      <span class="brand-arrow">→</span>
+      <span class="brand-klaviyo">Klaviyo</span>
+    </div>
+
+    <div class="tabs">
+      <button class="tab on" onclick="goMode('designer',this)">✦ Designer</button>
+      <button class="tab" onclick="goMode('tech',this)">Tech 🔒</button>
+    </div>
+
+    <div class="topbar-right">
+      <div class="conn"><div class="cdot"></div>Live</div>
+      <div class="ib">🔔<div class="ndot"></div></div>
+      <div class="ava">RFB</div>
+    </div>
+  </header>
+
+  <!-- ─── Content ─────────────────────────────────────────────────── -->
+  <div class="content">
+
+    <!-- ══════════ DESIGNER MODE ══════════ -->
+    <div class="view on" id="view-designer">
+
+      <!-- Page heading -->
+      <div class="page-head">
+        <div class="page-title">Email Frame Studio</div>
+        <div class="page-sub">Slice, compress &amp; prepare frames for Klaviyo — powered by <em>Retention for Brands</em></div>
+      </div>
+
+      <!-- Metrics -->
+      <div class="metrics">
+        <div class="mc glass glass-lift">
+          <div class="mc-top">
+            <div class="mc-label">Frames Detected</div>
+            <div class="mc-icon ic-v">⬚</div>
+          </div>
+          <div class="mc-num">4</div>
+          <div class="mc-foot"><span class="pill pill-v">↑ 2 new</span></div>
+        </div>
+        <div class="mc glass glass-lift">
+          <div class="mc-top">
+            <div class="mc-label">Frames Sliced</div>
+            <div class="mc-icon ic-g">✂</div>
+          </div>
+          <div class="mc-num">2</div>
+          <div class="prog-wrap">
+            <div class="prog-track"><div class="prog-fill" style="width:50%"></div></div>
+            <div style="font-size:11px;color:var(--t-3);">2 of 4 complete</div>
+          </div>
+        </div>
+        <div class="mc glass glass-lift">
+          <div class="mc-top">
+            <div class="mc-label">Ready to Push</div>
+            <div class="mc-icon ic-b">🚀</div>
+          </div>
+          <div class="mc-num">2</div>
+          <div class="mc-foot"><span class="pill pill-g">● Ready</span></div>
+        </div>
+      </div>
+
+      <!-- Frame selection -->
+      <div class="card glass">
+        <div class="card-hd">
+          <div>
+            <div class="card-title">Email Frames</div>
+            <div class="card-sub">Select frames to process in batch</div>
+          </div>
+          <div class="tog-all">
+            <button onclick="chkAll(true)">All</button>
+            <button onclick="chkAll(false)">None</button>
+          </div>
+        </div>
+        <div class="frame-list" id="flist">
+          <div class="frame-row sel" onclick="pickFrame(this,'Black Friday Email 2025')">
+            <div class="chk on" data-v="1">✓</div>
+            <span class="frame-name">Black Friday Email 2025</span>
+            <span class="frame-dim">600×1840</span>
+            <span class="pill pill-g">✓ Sliced</span>
+          </div>
+          <div class="frame-row" onclick="pickFrame(this,'Cyber Monday Deal')">
+            <div class="chk on" data-v="1">✓</div>
+            <span class="frame-name">Cyber Monday Deal</span>
+            <span class="frame-dim">600×2240</span>
+            <span class="pill pill-b analyzing-anim">⟳ Analyzing</span>
+          </div>
+          <div class="frame-row" onclick="pickFrame(this,'Holiday Newsletter')">
+            <div class="chk" data-v="0"></div>
+            <span class="frame-name">Holiday Newsletter</span>
+            <span class="frame-dim">600×1620</span>
+            <span class="pill pill-a">● Pending</span>
+          </div>
+          <div class="frame-row" onclick="pickFrame(this,'Winter Collection')">
+            <div class="chk" data-v="0"></div>
+            <span class="frame-name">Winter Collection</span>
+            <span class="frame-dim">600×2080</span>
+            <span class="pill pill-a">● Pending</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Active frame preview -->
+      <div class="card glass">
+        <div class="card-hd">
+          <div>
+            <div class="card-title" id="active-frame-name">📧 Black Friday Email 2025</div>
+            <div class="card-sub">600 × 1840px · AI-sliced · 4 sections</div>
+          </div>
+          <div class="row">
+            <button class="btn btn-ghost" style="font-size:12px;padding:7px 14px;">↻ Re-analyze</button>
+            <button class="btn btn-p" style="font-size:12px;padding:7px 14px;">✦ Slice Frame</button>
+          </div>
+        </div>
+
+        <!-- Slice visualizer -->
+        <div class="preview-area">
+          <div class="slice-viz">
+            <div class="sz"><span class="sz-tag">Header</span><div class="sz-handle"></div></div>
+            <div class="sz"><span class="sz-tag">Hero Banner</span><div class="sz-handle"></div></div>
+            <div class="sz"><span class="sz-tag">Product Grid</span><div class="sz-handle"></div></div>
+            <div class="sz"><span class="sz-tag">Footer CTA</span></div>
+          </div>
+        </div>
+
+        <!-- Slice rows -->
+        <div class="slice-rows">
+          <div class="sr"><span class="sr-n">1</span><span class="sr-nm">Header</span><span class="sr-rng">0 – 120px</span><div class="sr-acts"><div class="sab">+</div><div class="sab">✎</div><div class="sab del">✕</div></div></div>
+          <div class="sr"><span class="sr-n">2</span><span class="sr-nm">Hero Banner</span><span class="sr-rng">120 – 680px</span><div class="sr-acts"><div class="sab">+</div><div class="sab">✎</div><div class="sab del">✕</div></div></div>
+          <div class="sr"><span class="sr-n">3</span><span class="sr-nm">Product Grid</span><span class="sr-rng">680 – 1540px</span><div class="sr-acts"><div class="sab">+</div><div class="sab">✎</div><div class="sab del">✕</div></div></div>
+          <div class="sr"><span class="sr-n">4</span><span class="sr-nm">Footer CTA</span><span class="sr-rng">1540 – 1840px</span><div class="sr-acts"><div class="sab">+</div><div class="sab">✎</div><div class="sab del">✕</div></div></div>
+        </div>
+      </div>
+
+      <!-- Compression settings -->
+      <div class="card glass">
+        <div class="card-hd">
+          <div>
+            <div class="card-title">Compression Settings</div>
+            <div class="card-sub">Applied globally to all frames</div>
+          </div>
+        </div>
+        <div class="col">
+          <div>
+            <div class="ilb" style="margin-bottom:9px;">Output Format</div>
+            <div class="fmt-pills">
+              <div class="fp on" onclick="setPill(this)">Auto</div>
+              <div class="fp" onclick="setPill(this)">JPEG</div>
+              <div class="fp" onclick="setPill(this)">PNG</div>
+              <div class="fp" onclick="setPill(this)">WebP</div>
+            </div>
+          </div>
+          <div class="sl-row">
+            <div class="sl-lbl">Quality <b id="qv">82%</b></div>
+            <input type="range" min="50" max="100" value="82"
+              oninput="document.getElementById('qv').textContent=this.value+'%';syncRange(this);" />
+            <div class="row" style="justify-content:space-between;font-size:10.5px;color:var(--t-3);">
+              <span>Smaller file</span><span>Sharper image</span>
+            </div>
+          </div>
+          <div class="sl-row">
+            <div class="sl-lbl">Max size per slice <b id="msv">500 KB</b></div>
+            <input type="range" min="50" max="5000" step="50" value="500"
+              oninput="var v=+this.value;document.getElementById('msv').textContent=v>=1000?(v/1024).toFixed(1)+' MB':v+' KB';syncRange(this);" />
+            <div class="row" style="justify-content:space-between;font-size:10.5px;color:var(--t-3);">
+              <span>50 KB</span><span>5 MB</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CTA -->
+      <button class="btn btn-cta" onclick="goMode('tech',document.querySelectorAll('.tab')[1])">
+        ✦ Apply, Compress &amp; Push All 2 Frames to Klaviyo →
+      </button>
+
+    </div><!-- /designer -->
+
+    <!-- ══════════ TECH MODE ══════════ -->
+    <div class="view" id="view-tech">
+
+      <div class="page-head">
+        <div class="page-title">Klaviyo Publisher</div>
+        <div class="page-sub">Configure &amp; push your email to Klaviyo — by <em>Retention for Brands</em></div>
+      </div>
+
+      <!-- API Key -->
+      <div class="card glass">
+        <div class="card-hd"><div><div class="card-title">🔑 Klaviyo API Key</div><div class="card-sub">Stored locally · never leaves your device</div></div></div>
+        <div id="ki-area">
+          <div class="row">
+            <input class="gi" type="password" placeholder="pk_•••••••••••••••••••••••••••••••" id="kv" style="flex:1;font-family:monospace;font-size:12.5px;" />
+            <button class="btn btn-p" onclick="saveKey()">Save Key</button>
+          </div>
+        </div>
+        <div id="ks-area" style="display:none;">
+          <div class="key-saved">
+            <span>✓</span>
+            <span class="kv">pk_••••••••••••••••••••••••••••••••</span>
+            <button class="btn btn-ghost" onclick="changeKey()" style="font-size:11.5px;padding:5px 12px;margin-left:auto;">Change</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slice config table -->
+      <div class="card glass">
+        <div class="card-hd"><div><div class="card-title">✂ Slice Configuration</div><div class="card-sub">Set alt text and click-through links for each slice</div></div></div>
+        <div style="overflow-x:auto;">
+          <table class="gt">
+            <thead><tr><th>Slice</th><th>Frame</th><th>Alt Text</th><th>Link URL</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><strong>Header</strong></td>
+                <td><span style="color:var(--t-3);font-size:11.5px;">Black Friday</span></td>
+                <td><input class="ti" value="Black Friday Email Header" /></td>
+                <td><input class="ti" placeholder="https://…" /></td>
+                <td><span class="pill pill-g">✓ Ready</span></td>
+              </tr>
+              <tr>
+                <td><strong>Hero Banner</strong></td>
+                <td><span style="color:var(--t-3);font-size:11.5px;">Black Friday</span></td>
+                <td><input class="ti" value="Shop Black Friday Deals" /></td>
+                <td><input class="ti" value="https://shop.example.com/bf" /></td>
+                <td><span class="pill pill-g">✓ Ready</span></td>
+              </tr>
+              <tr>
+                <td><strong>Product Grid</strong></td>
+                <td><span style="color:var(--t-3);font-size:11.5px;">Black Friday</span></td>
+                <td><input class="ti" value="Featured products on sale" /></td>
+                <td><input class="ti" placeholder="https://…" /></td>
+                <td><span class="pill pill-a">⚠ Link missing</span></td>
+              </tr>
+              <tr>
+                <td><strong>Footer CTA</strong></td>
+                <td><span style="color:var(--t-3);font-size:11.5px;">Black Friday</span></td>
+                <td><input class="ti" value="Shop now — Black Friday" /></td>
+                <td><input class="ti" value="https://shop.example.com" /></td>
+                <td><span class="pill pill-g">✓ Ready</span></td>
+              </tr>
+              <tr>
+                <td><strong>Header</strong></td>
+                <td><span style="color:var(--t-3);font-size:11.5px;">Cyber Monday</span></td>
+                <td><input class="ti" value="Cyber Monday Email Header" /></td>
+                <td><input class="ti" placeholder="https://…" /></td>
+                <td><span class="pill pill-g">✓ Ready</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Push config -->
+      <div class="card glass" id="push-cfg">
+        <div class="card-hd"><div><div class="card-title">🚀 Push Configuration</div></div></div>
+        <div class="col">
+          <div>
+            <div class="ilb" style="margin-bottom:9px;">Push Mode</div>
+            <div class="push-tabs">
+              <button class="ptab on" onclick="setPushMode('tmpl',this)">Template Only</button>
+              <button class="ptab" onclick="setPushMode('camp',this)">Template + Campaign</button>
+            </div>
+          </div>
+
+          <div class="ig">
+            <div class="ilb">Template Name</div>
+            <input class="gi" placeholder="e.g. Black Friday 2025" value="Black Friday Email 2025" />
+          </div>
+
+          <!-- Campaign fields -->
+          <div id="camp-fields" style="display:none;" class="col">
+            <div class="divider"></div>
+            <div class="ig"><div class="ilb">Campaign Name</div><input class="gi" placeholder="e.g. BF2025 Blast" /></div>
+            <div class="ig"><div class="ilb">Subject Line</div><input class="gi" placeholder="🔥 Black Friday — 50% off everything" /></div>
+            <div class="ig"><div class="ilb">Preview Text</div><input class="gi" placeholder="Don't miss our biggest sale of the year…" /></div>
+            <div class="grid2">
+              <div class="ig"><div class="ilb">From Name</div><input class="gi" placeholder="Retention for Brands" /></div>
+              <div class="ig"><div class="ilb">From Email</div><input class="gi" placeholder="hello@brand.com" /></div>
+            </div>
+            <div class="ig">
+              <div class="ilb">Send List</div>
+              <select class="gi" style="cursor:pointer;">
+                <option value="">Select a Klaviyo list…</option>
+                <option>All Subscribers (84,203)</option>
+                <option>VIP Customers (12,440)</option>
+                <option>Email Engaged 90d (31,820)</option>
+              </select>
+            </div>
+            <div class="ig">
+              <div class="ilb">Send Time <span style="color:var(--t-3);">(leave blank = draft)</span></div>
+              <input class="gi" type="datetime-local" />
+            </div>
+          </div>
+
+          <div class="row" style="margin-top:4px;">
+            <button class="btn btn-ghost" onclick="showSuccess()">👁 Preview HTML</button>
+            <button class="btn btn-g" style="flex:1;" onclick="showSuccess()">🚀 Push to Klaviyo</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Success -->
+      <div class="success-wrap" id="succ" style="display:none;">
+        <div class="success-ico">✓</div>
+        <div class="success-title">Pushed to Klaviyo!</div>
+        <div class="success-sub">Your email template is live in your Klaviyo account.</div>
+        <div class="success-links">
+          <a class="sl-link" href="#">View Template →</a>
+          <a class="sl-link" href="#">View Campaign →</a>
+        </div>
+        <div style="margin-top:18px;">
+          <button class="btn btn-ghost" onclick="resetPush()" style="font-size:12px;">← Push Another</button>
+        </div>
+      </div>
+
+    </div><!-- /tech -->
+
+  </div><!-- /content -->
+
+  <!-- RFB brand strip -->
+  <div class="rfb-strip">
+    <strong>Retention for Brands</strong>
+    <div class="rfb-dot"></div>
+    <span>The #1 E-Commerce Retention Company</span>
+    <div class="rfb-dot"></div>
+    <span>Figma → Klaviyo Plugin v1.0</span>
+  </div>
+
+</div><!-- /shell -->
+
+<script>
+function goMode(m, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
+  el.classList.add('on');
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('on'));
+  document.getElementById('view-' + m).classList.add('on');
+}
+
+function pickFrame(row, name) {
+  document.querySelectorAll('.frame-row').forEach(r => r.classList.remove('sel'));
+  row.classList.add('sel');
+  document.getElementById('active-frame-name').textContent = '📧 ' + name;
+}
+
+// checkbox toggle on click
+document.querySelectorAll('.frame-row').forEach(row => {
+  row.addEventListener('click', e => {
+    const cb = e.target.closest('.chk');
+    if (!cb) return;
+    const on = cb.dataset.v === '1';
+    cb.dataset.v = on ? '0' : '1';
+    if (on) { cb.classList.remove('on'); cb.textContent = ''; }
+    else     { cb.classList.add('on');  cb.textContent = '✓'; }
+    e.stopPropagation();
+  });
+});
+
+function chkAll(v) {
+  document.querySelectorAll('.chk').forEach(cb => {
+    cb.dataset.v = v ? '1' : '0';
+    v ? (cb.classList.add('on'), cb.textContent = '✓') : (cb.classList.remove('on'), cb.textContent = '');
+  });
+}
+
+function setPill(el) {
+  el.closest('.fmt-pills').querySelectorAll('.fp').forEach(p => p.classList.remove('on'));
+  el.classList.add('on');
+}
+
+function syncRange(el) {
+  const pct = ((el.value - el.min) / (el.max - el.min) * 100).toFixed(1);
+  el.style.background = `linear-gradient(90deg, var(--rfb-indigo) ${pct}%, rgba(255,255,255,0.08) ${pct}%)`;
+}
+document.querySelectorAll('input[type=range]').forEach(syncRange);
+
+function saveKey() {
+  if (!document.getElementById('kv').value.trim()) return;
+  document.getElementById('ki-area').style.display = 'none';
+  document.getElementById('ks-area').style.display = 'block';
+}
+function changeKey() {
+  document.getElementById('ki-area').style.display = 'block';
+  document.getElementById('ks-area').style.display = 'none';
+}
+
+function setPushMode(m, el) {
+  document.querySelectorAll('.ptab').forEach(t => t.classList.remove('on'));
+  el.classList.add('on');
+  document.getElementById('camp-fields').style.display = m === 'camp' ? 'flex' : 'none';
+}
+
+function showSuccess() {
+  document.getElementById('push-cfg').style.display = 'none';
+  document.getElementById('succ').style.display = 'block';
+  document.getElementById('succ').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+function resetPush() {
+  document.getElementById('push-cfg').style.display = 'block';
+  document.getElementById('succ').style.display = 'none';
+}
+</script>
+</body>
+</html>

@@ -1,10 +1,9 @@
-FROM python:3.12-slim
+FROM cgr.dev/chainguard/python:latest-dev
 
-# Install Node.js 20
-RUN apt-get update && apt-get install -y --no-install-recommends curl gnupg && \
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y --no-install-recommends nodejs && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+USER root
+
+# Install Node.js (required for sharp image compression at runtime)
+RUN apk add --no-cache nodejs npm
 
 WORKDIR /app
 
@@ -15,7 +14,6 @@ RUN pip install --no-cache-dir -r requirements.txt && \
 COPY backend/ .
 
 ENV PYTHONUNBUFFERED=1
-
 EXPOSE 8080
 
 CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--timeout", "120", "app:app"]

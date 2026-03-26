@@ -1,390 +1,243 @@
-# Figma → Klaviyo Plugin — Setup & Usage Guide
+# Figma → Klaviyo Plugin
 
-> Complete installation and usage instructions for designers and the Klaviyo team.
-
----
-
-## Table of Contents
-
-1. [Prerequisites](#prerequisites)
-2. [Install Git](#1-install-git)
-3. [Install Node.js](#2-install-nodejs)
-4. [Clone the Repository](#3-clone-the-repository)
-5. [Build the Plugin](#4-build-the-plugin)
-6. [Load the Plugin in Figma](#5-load-the-plugin-in-figma)
-7. [Backend Setup (Dev Only)](#6-backend-setup-dev-only)
-8. [Using the Plugin — Designer Mode](#7-using-the-plugin--designer-mode)
-9. [Using the Plugin — Tech Mode](#8-using-the-plugin--tech-mode)
-10. [Klaviyo API Key Setup](#9-klaviyo-api-key-setup)
-11. [Troubleshooting](#troubleshooting)
-12. [Quick Reference — Terminal Commands](#quick-reference--terminal-commands)
+Turn Figma email designs into Klaviyo templates and campaigns — no manual slicing, no copy-pasting HTML.
 
 ---
 
-## Prerequisites
+## How It Works
 
-You need the following installed on your machine:
+1. **Designer Mode** — AI analyzes your Figma email frame and suggests where to slice it into image sections. You review, adjust, and apply.
+2. **Tech Mode** — Uploads each image slice to Klaviyo's CDN, builds the HTML template, and creates the template or campaign in Klaviyo — one click.
 
-| Tool | Required Version | Download |
-|------|-----------------|----------|
-| Git | Any recent version | https://git-scm.com/downloads |
-| Node.js | 18 or 20 (LTS) | https://nodejs.org |
-| Figma Desktop App | Latest | https://www.figma.com/downloads |
-| Python | 3.12+ (backend/dev only) | https://www.python.org/downloads |
+The backend runs on Railway. No server setup needed for the team.
 
 ---
 
-## 1. Install Git
+## Install the Plugin
 
-**macOS:**
+> **Only requirement: [Docker Desktop](https://www.docker.com/products/docker-desktop/)**
+> Git, Node.js, and Python are **not** needed — Docker handles all of them automatically.
+
+### Step 1 — Install Docker Desktop
+
+Download and install from https://www.docker.com/products/docker-desktop/
+
+Open it and wait for the whale icon in your taskbar/menu bar to stop animating — Docker must be running before you continue.
+
+### Step 2 — Download the project
+
+Go to the GitHub repository and click **Code → Download ZIP**.
+
+Unzip the downloaded file. You should now have a folder called `figma-klaviyo` on your machine.
+
+> If you already have Git installed, you can clone instead:
+> ```bash
+> git clone https://github.com/RFBadmin/figma-klaviyo.git
+> ```
+
+### Step 3 — Run the setup script
+
+Open the `figma-klaviyo` folder, then:
+
+**Mac / Linux** — open Terminal inside the folder and run:
 ```bash
-# Check if already installed
-git --version
-
-# Install via Homebrew (if not installed)
-brew install git
+bash setup.sh
 ```
 
-**Windows:**
-Download and run the installer from https://git-scm.com/downloads
-During install, choose **"Git Bash"** and **"Use Git from the command line"**.
+**Windows** — double-click `setup.bat` inside the folder.
 
-**Verify:**
-```bash
-git --version
-# Expected: git version 2.x.x
-```
+The script will automatically:
+1. Install all Node.js dependencies (no Node.js install needed — runs inside Docker)
+2. Build the plugin
+3. Print the exact file path to load in Figma
 
----
+> First run takes ~60 seconds while Docker downloads the Node.js image. Every run after that is fast.
 
-## 2. Install Node.js
+### Step 4 — Load in Figma
 
-Download **Node.js v20 LTS** from https://nodejs.org
+1. Open **Figma Desktop App** (must be desktop, not browser)
+2. **Main Menu (☰) → Plugins → Development → Import plugin from manifest…**
+3. Select: `figma-klaviyo/plugin/manifest.json`
+4. Plugin appears under **Plugins → Development → Figma to Klaviyo**
 
-**Verify after installing:**
-```bash
-node --version
-# Expected: v20.x.x
+That's it. The backend is live on Railway — nothing else to set up.
 
-npm --version
-# Expected: 10.x.x
-```
+### Getting updates
 
----
-
-## 3. Clone the Repository
-
-Open **Terminal** (macOS) or **Git Bash** / **Command Prompt** (Windows):
+When there is a new version, download the ZIP again (or `git pull`), then run the script again:
 
 ```bash
-# Navigate to where you want the project saved
-cd ~/Desktop
-
-# Clone the repository
-git clone https://github.com/RFBadmin/figma-klaviyo.git
-
-# Enter the project folder
-cd figma-klaviyo
-```
-
-To get the latest changes in the future:
-```bash
-cd figma-klaviyo
-git pull origin main
+bash setup.sh    # Mac/Linux
+setup.bat        # Windows
 ```
 
 ---
 
-## 4. Build the Plugin
+## Designer Mode — Step by Step
 
-> The `dist/` folder is already committed to the repo — **you do NOT need to rebuild unless you make code changes.**
-> If you just want to use the plugin, skip to step 5.
+Designer Mode slices your email frame into image sections ready for Klaviyo.
 
-To install dependencies and build from source:
+### Prepare your frame
 
-```bash
-# Make sure you are inside the plugin folder
-cd figma-klaviyo/plugin
+- Email design must be inside a Figma **Frame** that is **500–700px wide**
+- Name the frame clearly (e.g. `Black Friday Email 2025`)
+- Plugin auto-detects frames of this width on the current page
 
-# Install dependencies
-npm install
+### Select frames
 
-# Build once (creates dist/code.js and dist/ui.html)
-npm run build
-
-# OR — watch for file changes during development
-npm run dev
-```
-
-After building, confirm these two files exist:
-```
-plugin/dist/code.js
-plugin/dist/ui.html
-```
-
----
-
-## 5. Load the Plugin in Figma
-
-> You must use the **Figma Desktop App** — the browser version does not support development plugins.
-
-1. Open **Figma Desktop App**
-2. Open any Figma file
-3. Go to **Main Menu (☰) → Plugins → Development → Import plugin from manifest…**
-4. In the file picker, navigate to your cloned folder and select:
-   ```
-   figma-klaviyo/plugin/manifest.json
-   ```
-5. The plugin **"Figma → Klaviyo"** now appears under **Plugins → Development**
-
-**To run the plugin:**
-- **Main Menu → Plugins → Development → Figma → Klaviyo**
-- Or **right-click** on the Figma canvas → **Plugins → Development → Figma → Klaviyo**
-
-**To re-open after closing:**
-Same steps above — or use the keyboard shortcut shown next to the plugin name in the menu.
-
----
-
-## 6. Backend Setup (Dev Only)
-
-> **Skip this section if you are using the hosted backend.**
-> The plugin is pre-configured to use the production backend at:
-> `https://figma-klaviyo-production.up.railway.app`
->
-> No backend setup is needed for designers or the Klaviyo team — the backend runs in the cloud.
-
-If you need to run the backend locally (developers only):
-
-```bash
-# Navigate to the backend folder
-cd figma-klaviyo/backend
-
-# Create a Python virtual environment
-python -m venv .venv
-
-# Activate it:
-# macOS / Linux:
-source .venv/bin/activate
-
-# Windows (Command Prompt):
-.venv\Scripts\activate
-
-# Windows (Git Bash):
-source .venv/Scripts/activate
-
-# Install Python dependencies
-pip install -r requirements.txt
-
-# Copy the example env file
-cp .env.example .env
-```
-
-Open `.env` in any text editor and fill in your keys:
-```
-ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
-BASE_URL=http://localhost:8080
-FLASK_DEBUG=1
-```
-
-Start the backend server:
-```bash
-python app.py
-# Server now running on http://localhost:8080
-```
-
----
-
-## 7. Using the Plugin — Designer Mode
-
-Designer Mode is for the **design team**. It slices the email frame into image sections and prepares them for Klaviyo.
-
-### Step 1 — Prepare your Figma frame
-
-- Your email design must be inside a **Frame** that is **500–700px wide**
-- Name your frame clearly (e.g. `Black Friday Email 2025`)
-- The plugin auto-detects frames of this width on the current page
-
-### Step 2 — Open the plugin and select frames
-
-- **Select a frame on canvas first** → plugin shows only that frame
+- **Click a frame on canvas** → plugin shows only that frame
 - **Select nothing** → plugin shows all email frames on the page with checkboxes
-- Use the checkboxes to choose which frames to process
-- Click **All** or **None** to quickly check/uncheck everything
+- Use **All / None** to quickly select or clear everything
 
-### Step 3 — Slice the frames
+### Slice
 
 - Single frame: click **✦ Slice Frame**
 - Multiple frames: click **✦ Slice All N Frames**
-- The AI analyzes your design and suggests where to cut the email into image slices
-- A preview panel appears showing your email with **blue dashed cut lines**
+- AI analyzes the design and places cut lines — a preview panel shows your email with blue dashed lines
 
-### Step 4 — Adjust slices (optional)
-
-In the preview panel:
+### Adjust slices (optional)
 
 | Action | How |
 |--------|-----|
-| Move a cut line | Drag the **blue handle** up or down |
-| Split a slice into two | Click **+** on the right side of any slice |
+| Move a cut line | Drag the blue handle up or down |
+| Split a slice in two | Click **+** on the right side of any slice |
 | Delete a slice | Click **✕** on the slice label |
 | Rename a slice | Double-click the slice label |
-| Re-run AI slicing | Click **↻ Re-analyze** |
+| Re-run AI | Click **↻ Re-analyze** |
 
-### Step 5 — Using Figma native slice nodes (optional)
+> If you draw Figma **Slice** rectangles manually on the frame, the plugin detects and uses them automatically — no AI needed.
 
-If you draw **Slice** rectangles manually using Figma's Slice tool on a frame, the plugin detects and uses them automatically — no AI analysis needed.
+### Compression settings
 
-### Step 6 — Compression Settings
-
-Before applying, configure the compression settings (applies to **all frames**):
+Configure before applying (applies to all frames):
 
 - **Output Format:** Auto (recommended) / JPEG / PNG / WebP
-- **Quality:** 50–100% slider — higher means sharper but larger files
-- **Max size per slice:** 50 KB – 5 MB limit per image
+- **Quality:** 50–100% — higher = sharper image, larger file size
+- **Max size per slice:** 50 KB – 5 MB
 
-### Step 7 — Apply, Compress & Push to Klaviyo
+### Apply & push
 
 Click **✦ Apply, Compress & Push All N Frames to Klaviyo →**
 
-The plugin will:
-1. Apply the slice boundaries to the Figma canvas as Slice nodes
-2. Export and compress each slice image
-3. Save everything to the frame
-4. Automatically switch to **Tech Mode**
+The plugin:
+1. Writes slice boundaries to the Figma canvas as Slice nodes
+2. Exports and compresses each image
+3. Saves slice data to the frame
+4. Switches to Tech Mode automatically
 
 ---
 
-## 8. Using the Plugin — Tech Mode
+## Tech Mode — Step by Step
 
-Tech Mode is for the **tech / Klaviyo team**. It pushes the prepared email to Klaviyo as a template or campaign.
+Tech Mode pushes the prepared email to Klaviyo as a template or campaign.
 
-### Step 1 — Enter your Klaviyo API key
+### Enter your Klaviyo API key
 
-On first use:
-1. Click the **Tech 🔒** tab
+First use only:
+1. Click the **Tech** tab
 2. Enter your Klaviyo **Private API Key** (starts with `pk_`)
-   See [Section 9](#9-klaviyo-api-key-setup) for how to get this key
-3. Click **Save Key**
+3. Click **Save & Continue**
 
-Your key is stored locally in Figma — it is never stored on any server except Klaviyo's own API.
+The key is stored locally in Figma — never sent to any external server.
 
-### Step 2 — Review slice configuration
+> **To get your key:** Klaviyo → Account (bottom-left avatar) → Settings → API Keys → Create Private API Key
+>
+> Required scopes: **Templates** (Full Access) · **Campaigns** (Full Access) · **Lists** (Read-only)
 
-A table shows all slices across all pushed frames. For each slice, you can set:
+### Review slice configuration
 
-- **Alt Text** — screen reader description for accessibility (required for good email practice)
+A table shows every slice across all pushed frames. For each slice:
+
+- **Alt Text** — screen reader description (accessibility best practice)
 - **Link** — URL that opens when the image is clicked in the email (leave blank for no link)
 
-### Step 3 — Choose mode: Template or Campaign
+### Choose mode
 
-**Template only** (creates a reusable template in Klaviyo):
-- Enter a **Template Name**
+**Template only** — creates a reusable template in Klaviyo:
+- Enter a Template Name
 
-**Template + Campaign** (creates a template AND schedules/sends a campaign):
-- Template Name
-- Campaign Name
-- Subject Line
-- Preview Text
+**Template + Campaign** — creates a template and schedules a campaign:
+- Template Name, Campaign Name, Subject Line, Preview Text
 - From Name + From Email
-- Select the **List** to send to
-- Optional: set a **Send Time** (leave blank to save as draft)
+- Select the List to send to
+- Optional: set a Send Time (leave blank to save as draft)
 
-### Step 4 — Preview HTML (optional)
+### Preview HTML (optional)
 
-Click **Preview HTML** to see exactly how the email will render before sending anything to Klaviyo.
+Click **Preview HTML** to see exactly how the email renders before touching Klaviyo.
 
-### Step 5 — Push to Klaviyo
+### Push
 
-Click **Push to Klaviyo**.
+Click **Push to Klaviyo →**
 
-The plugin will:
-1. Upload each slice image to Klaviyo's CDN
-2. Build the HTML email template
-3. Create the template in Klaviyo
-4. Create the campaign (if campaign mode selected)
+The plugin:
+1. Uploads each slice image to Klaviyo's CDN
+2. Builds the HTML email template
+3. Creates the template in Klaviyo
+4. Creates the campaign (if campaign mode selected)
 
-On success you'll see:
+On success:
 - **View Template →** — opens the template in Klaviyo's drag & drop editor
-- **View Campaign →** — opens the campaign in Klaviyo (campaign mode only)
+- **View Campaign →** — opens the campaign in Klaviyo
 
-> **Important:** Always use the **View Template →** link from the plugin to open the template in drag & drop mode. Opening the template directly from Klaviyo's Content → Templates page may show the HTML editor instead — this is a Klaviyo website behaviour, not a plugin issue.
-
----
-
-## 9. Klaviyo API Key Setup
-
-1. Log in to your Klaviyo account at https://www.klaviyo.com
-2. Go to **Account (bottom-left avatar) → Settings → API Keys**
-3. Click **Create Private API Key**
-4. Give it a name (e.g. `Figma Plugin`)
-5. Set these scopes:
-
-   | Scope | Permission |
-   |-------|-----------|
-   | Templates | Full Access |
-   | Campaigns | Full Access |
-   | Lists | Read-only |
-
-6. Click **Create**
-7. Copy the key — it starts with `pk_`
-8. Paste it into the plugin: **Tech Mode → API Key field → Save Key**
+> **Important:** Always use the **View Template →** link from the plugin. Opening the template directly from Klaviyo's website (Content → Templates) may open the HTML editor instead — this is Klaviyo's behaviour, not a plugin bug.
 
 ---
 
 ## Troubleshooting
 
-| Problem | Solution |
-|---------|----------|
-| Plugin not appearing in Figma | Make sure you imported `manifest.json`, not `package.json` |
-| "No email frames found" | Ensure your frame is between 500–700px wide |
-| Slicing spinner never stops | Check your internet connection; the backend may be cold-starting (wait 30s and retry) |
-| Klaviyo push fails with auth error | Verify your API key starts with `pk_` and has Templates + Campaigns write access |
+| Problem | Fix |
+|---------|-----|
+| Script says "Docker is not running" | Open Docker Desktop and wait for the whale icon to stop animating, then run again |
+| Script says "Clone failed" | Check your internet connection and try again |
+| Plugin not appearing in Figma | Re-import — make sure you selected `manifest.json`, not `package.json` |
+| "No email frames found" | Frame must be between 500–700px wide |
+| Slicing spinner never stops | Railway backend may be cold-starting — wait 30s and click Slice again |
+| Klaviyo push fails with auth error | Key must start with `pk_` and have Templates + Campaigns write access |
 | Template opens in HTML editor on Klaviyo website | Use the **View Template →** link from the plugin instead of navigating manually |
-| `npm run build` fails | Delete `plugin/node_modules`, run `npm install` again, then `npm run build` |
-| `python app.py` fails | Make sure virtual environment is activated and `pip install -r requirements.txt` completed |
-| Frame shows "sliced" but no slice nodes on canvas | Delete the frame's plugin data: re-open plugin, the state will reset automatically |
+| Frame shows "sliced" but no slice nodes on canvas | Re-open the plugin — it will detect and reset the stale state automatically |
 
 ---
 
-## Quick Reference — Terminal Commands
+## For Developers — Local Backend
+
+The team does **not** need this. Only relevant when making changes to the backend code.
 
 ```bash
-# ── First-time setup ────────────────────────────────────────────────────────
+# Copy env template and fill in your Anthropic API key
+cp backend/.env.example backend/.env
 
-# Clone the repository
-git clone https://github.com/RFBadmin/figma-klaviyo.git
-cd figma-klaviyo
-
-# Build the plugin (only needed if making code changes)
-cd plugin
-npm install
-npm run build
-
-# ── Day-to-day ───────────────────────────────────────────────────────────────
-
-# Get latest changes from the repo
-git pull origin main
-
-# Rebuild after pulling changes
-cd plugin && npm run build
-
-# Watch mode (auto-rebuilds on save — for developers)
-cd plugin && npm run dev
-
-# ── Backend (local dev only) ─────────────────────────────────────────────────
-
-cd figma-klaviyo/backend
-
-# Create and activate virtual environment
-python -m venv .venv
-source .venv/bin/activate        # macOS/Linux
-# or: .venv\Scripts\activate     # Windows
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Start the server
-python app.py
+# Start backend locally
+docker compose up backend
 # → Running on http://localhost:8080
+
+# Stop
+docker compose down
+```
+
+> Apple Silicon (M1/M2/M3): works natively — Docker Desktop handles ARM64 automatically.
+
+---
+
+## Project Structure
+
+```
+figma-klaviyo/
+├── plugin/                 # Figma plugin (Preact + TypeScript)
+│   ├── src/
+│   │   ├── code.ts         # Plugin sandbox (runs inside Figma)
+│   │   ├── ui.tsx          # Plugin UI entry point
+│   │   └── components/     # DesignerMode, TechMode, KlaviyoConfig
+│   ├── dist/               # Compiled output (committed to repo)
+│   └── manifest.json       # Figma plugin manifest — load this in Figma
+├── backend/                # Flask + Python API
+│   ├── app.py
+│   ├── routes/
+│   ├── services/
+│   └── Dockerfile
+├── setup.sh                # One-click setup — Mac/Linux
+├── setup.bat               # One-click setup — Windows
+├── docker-compose.yml      # build-plugin + backend services
+├── Dockerfile              # Railway deployment
+└── railway.toml            # Railway config
 ```

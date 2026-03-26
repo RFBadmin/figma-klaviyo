@@ -1,0 +1,51 @@
+services:
+  # ── Plugin builder ──────────────────────────────────────────────────────────
+  # Runs once to compile the Figma plugin. Requires no local Node.js install.
+  # Usage: bash setup.sh  (Mac/Linux)  |  setup.bat  (Windows)
+  # Or manually: docker compose --profile build run --rm build-plugin
+  build-plugin:
+    image: node:22-alpine3.21
+    working_dir: /plugin
+    volumes:
+      - ./plugin:/plugin
+    command: >
+      sh -c "
+        echo '──────────────────────────────────────' &&
+        echo ' Installing dependencies...' &&
+        npm install &&
+        echo ' Building plugin...' &&
+        npm run build &&
+        echo '──────────────────────────────────────' &&
+        echo ' Plugin built successfully!' &&
+        echo ' Next: load plugin/manifest.json in Figma' &&
+        echo '──────────────────────────────────────'
+      "
+    profiles: ["build"]
+
+  # ── Backend (developers only) ───────────────────────────────────────────────
+  # The team does NOT need this — the backend runs on Railway.
+  # Only run locally if you are developing / testing backend changes.
+  # Usage: docker compose up backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    env_file:
+      - ./backend/.env
+    environment:
+      - PORT=8080
+      - BASE_URL=http://localhost:8080
+    volumes:
+      - backend_tmp:/tmp/rfb_klaviyo
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  backend_tmp:
