@@ -79,7 +79,7 @@ def push():
             if not image_bytes:
                 return jsonify({'error': f'No image data for slice "{slice_item.get("name")}"'}), 400
 
-            ext, mime_type = _detect_image_format(image_bytes)
+            image_bytes, ext, mime_type = _ensure_klaviyo_compatible(image_bytes)
             filename = f"{template_name.lower().replace(' ', '_')}_{slice_item.get('name', f'slice_{i}')}_{i}.{ext}"
             klaviyo_url = client.upload_image(image_bytes, filename, content_type=mime_type)
 
@@ -143,6 +143,23 @@ def _detect_image_format(image_bytes: bytes) -> tuple[str, str]:
     if len(image_bytes) >= 12 and image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP':
         return 'webp', 'image/webp'
     return 'jpg', 'image/jpeg'  # fallback
+
+
+def _ensure_klaviyo_compatible(image_bytes: bytes) -> tuple[bytes, str, str]:
+    """
+    Klaviyo only accepts JPEG, PNG, and GIF.
+    If the image is WebP, convert it to JPEG before uploading.
+    Returns (image_bytes, extension, mime_type).
+    """
+    ext, mime_type = _detect_image_format(image_bytes)
+    if ext == 'webp':
+        from PIL import Image
+        import io
+        img = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG', quality=92)
+        return buf.getvalue(), 'jpg', 'image/jpeg'
+    return image_bytes, ext, mime_type
 
 
 def _get_slice_image(slice_item: dict) -> bytes | None:

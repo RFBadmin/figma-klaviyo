@@ -40,8 +40,8 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
   const [applyBatchProgress, setApplyBatchProgress] = useState<{ current: number; total: number } | null>(null);
   const [compressQuality, setCompressQuality] = useState<number>(82);
-  const [compressMaxKb, setCompressMaxKb] = useState<number>(500);
-  const [compressFormat, setCompressFormat] = useState<'auto' | 'jpeg' | 'png' | 'webp'>('auto');
+  const [compressMaxKb, setCompressMaxKb] = useState<number>(400);
+  const [compressFormat, setCompressFormat] = useState<'auto' | 'jpeg' | 'png'>('auto');
 
   const stopRef = useRef(false);
   const fetchControllerRef = useRef<AbortController | null>(null);
@@ -530,7 +530,7 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
           <div class="format-row">
             <span class="settings-label">Output Format</span>
             <div class="format-options">
-              {(['auto', 'jpeg', 'png', 'webp'] as const).map(fmt => (
+              {(['auto', 'jpeg', 'png'] as const).map(fmt => (
                 <button
                   key={fmt}
                   class={`format-btn ${compressFormat === fmt ? 'active' : ''}`}
@@ -540,7 +540,6 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
                 </button>
               ))}
             </div>
-            {compressFormat === 'webp' && <span class="format-warning">⚠ Limited email client support</span>}
             {compressFormat === 'png' && <span class="format-note">PNG is lossless — quality slider ignored</span>}
           </div>
           {compressFormat !== 'png' && (
@@ -552,10 +551,10 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
             </div>
           )}
           <div class="slider-row">
-            <label>Max size per slice <span>{compressMaxKb >= 1000 ? `${(compressMaxKb / 1024).toFixed(1)} MB` : `${compressMaxKb} KB`}</span></label>
-            <input type="range" min={50} max={5000} step={50} value={compressMaxKb}
+            <label>Max size per slice <span>{compressMaxKb} KB</span></label>
+            <input type="range" min={50} max={400} step={25} value={compressMaxKb}
               onInput={(e) => setCompressMaxKb(+(e.target as HTMLInputElement).value)} />
-            <div class="slider-hints"><span>50 KB</span><span>5 MB</span></div>
+            <div class="slider-hints"><span>50 KB</span><span>400 KB</span></div>
           </div>
         </div>
       )}
@@ -681,7 +680,7 @@ function CompressionResults({ response }: { response: CompressResponse }) {
   return (
     <div class="compression-results">
       <div class="targets-box">
-        <span>Per image: ≤5MB (Klaviyo API limit) │ originals used if under limit</span>
+        <span>Per image: ≤400KB limit │ originals used if under limit</span>
         <span>For fast email delivery: keep total under 500KB</span>
       </div>
       <table class="results-table">

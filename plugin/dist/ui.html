@@ -1158,7 +1158,7 @@
     const [batchProgress, setBatchProgress] = d2(null);
     const [applyBatchProgress, setApplyBatchProgress] = d2(null);
     const [compressQuality, setCompressQuality] = d2(82);
-    const [compressMaxKb, setCompressMaxKb] = d2(500);
+    const [compressMaxKb, setCompressMaxKb] = d2(400);
     const [compressFormat, setCompressFormat] = d2("auto");
     const stopRef = A2(false);
     const fetchControllerRef = A2(null);
@@ -1589,7 +1589,7 @@
         /* @__PURE__ */ u3("div", { style: { fontSize: 11, color: "#888", marginBottom: 6, fontStyle: "italic" }, children: "\u2699 Compression settings apply to all frames" }),
         /* @__PURE__ */ u3("div", { class: "format-row", children: [
           /* @__PURE__ */ u3("span", { class: "settings-label", children: "Output Format" }),
-          /* @__PURE__ */ u3("div", { class: "format-options", children: ["auto", "jpeg", "png", "webp"].map((fmt) => /* @__PURE__ */ u3(
+          /* @__PURE__ */ u3("div", { class: "format-options", children: ["auto", "jpeg", "png"].map((fmt) => /* @__PURE__ */ u3(
             "button",
             {
               class: `format-btn ${compressFormat === fmt ? "active" : ""}`,
@@ -1598,7 +1598,6 @@
             },
             fmt
           )) }),
-          compressFormat === "webp" && /* @__PURE__ */ u3("span", { class: "format-warning", children: "\u26A0 Limited email client support" }),
           compressFormat === "png" && /* @__PURE__ */ u3("span", { class: "format-note", children: "PNG is lossless \u2014 quality slider ignored" })
         ] }),
         compressFormat !== "png" && /* @__PURE__ */ u3("div", { class: "slider-row", children: [
@@ -1627,22 +1626,25 @@
         /* @__PURE__ */ u3("div", { class: "slider-row", children: [
           /* @__PURE__ */ u3("label", { children: [
             "Max size per slice ",
-            /* @__PURE__ */ u3("span", { children: compressMaxKb >= 1e3 ? `${(compressMaxKb / 1024).toFixed(1)} MB` : `${compressMaxKb} KB` })
+            /* @__PURE__ */ u3("span", { children: [
+              compressMaxKb,
+              " KB"
+            ] })
           ] }),
           /* @__PURE__ */ u3(
             "input",
             {
               type: "range",
               min: 50,
-              max: 5e3,
-              step: 50,
+              max: 400,
+              step: 25,
               value: compressMaxKb,
               onInput: (e3) => setCompressMaxKb(+e3.target.value)
             }
           ),
           /* @__PURE__ */ u3("div", { class: "slider-hints", children: [
             /* @__PURE__ */ u3("span", { children: "50 KB" }),
-            /* @__PURE__ */ u3("span", { children: "5 MB" })
+            /* @__PURE__ */ u3("span", { children: "400 KB" })
           ] })
         ] })
       ] }),
@@ -1733,7 +1735,7 @@
     const statusIcon = (s3) => s3 === "optimal" ? "\u2713" : s3 === "good" ? "\u2713" : s3 === "warning" ? "\u26A0" : "\u2717";
     return /* @__PURE__ */ u3("div", { class: "compression-results", children: [
       /* @__PURE__ */ u3("div", { class: "targets-box", children: [
-        /* @__PURE__ */ u3("span", { children: "Per image: \u22645MB (Klaviyo API limit) \u2502 originals used if under limit" }),
+        /* @__PURE__ */ u3("span", { children: "Per image: \u2264400KB limit \u2502 originals used if under limit" }),
         /* @__PURE__ */ u3("span", { children: "For fast email delivery: keep total under 500KB" })
       ] }),
       /* @__PURE__ */ u3("table", { class: "results-table", children: [
