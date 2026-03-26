@@ -1,3 +1,4 @@
+import time
 import requests
 from typing import List, Optional
 
@@ -21,6 +22,7 @@ class KlaviyoClient:
         """
         Upload image to Klaviyo CDN.
         Returns the hosted image URL.
+        Retries up to 3 times with exponential backoff on 5xx / timeout errors.
         """
         url = f"{self.BASE_URL}/images/"
 
@@ -31,11 +33,23 @@ class KlaviyoClient:
         }
 
         files = {'file': (filename, image_bytes, content_type)}
-        response = requests.post(url, headers=upload_headers, files=files)
-        response.raise_for_status()
+        last_exc: Exception = RuntimeError("Upload failed after 3 attempts")
 
-        data = response.json()
-        return data['data']['attributes']['image_url']
+        for attempt in range(3):
+            try:
+                response = requests.post(url, headers=upload_headers, files=files, timeout=60)
+                # 5xx = transient server error — retry
+                if response.status_code >= 500 and attempt < 2:
+                    time.sleep(2 ** attempt * 2)   # 2s then 4s
+                    continue
+                response.raise_for_status()
+                return response.json()['data']['attributes']['image_url']
+            except requests.exceptions.Timeout as exc:
+                last_exc = exc
+                if attempt < 2:
+                    time.sleep(2 ** attempt * 2)
+
+        raise last_exc
 
     # ─── Templates ────────────────────────────────────────────────────────────
 
