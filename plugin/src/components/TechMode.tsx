@@ -1,6 +1,7 @@
 import { h } from 'preact';
 import { useState, useEffect, useCallback } from 'preact/hooks';
 import { KlaviyoConfig } from './KlaviyoConfig';
+import { BrandKeyManager } from './BrandKeyManager';
 import type { SliceData, Slice, KlaviyoCampaignConfig } from '../types';
 import type { FrameInfo } from '../ui';
 
@@ -32,8 +33,9 @@ function generateId(): string {
 export function TechMode({ frames }: Props) {
   const [step, setStep] = useState<Step>('key_setup');
   const [klaviyoKey, setKlaviyoKey] = useState<string | null>(null);
-  const [keyInput, setKeyInput] = useState('');
-  const [keyError, setKeyError] = useState<string | null>(null);
+  const [activeBrand, setActiveBrand] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
   const [figmaUserName, setFigmaUserName] = useState<string>('');
   const [editedSlices, setEditedSlices] = useState<TaggedSlice[]>([]);
   const [klaviyoConfig, setKlaviyoConfig] = useState<KlaviyoCampaignConfig | null>(null);
@@ -45,25 +47,13 @@ export function TechMode({ frames }: Props) {
   // Frames that have been sliced and saved by the designer
   const readyFrames = frames.filter(f => f.existingSliceData);
 
-  // On mount: load saved API key + Figma username
+  // On mount: load Figma username only (key management moved to BrandKeyManager)
   useEffect(() => {
-    parent.postMessage({ pluginMessage: { type: 'GET_KLAVIYO_KEY' } }, '*');
     parent.postMessage({ pluginMessage: { type: 'GET_USER_INFO' } }, '*');
 
     const handler = (event: MessageEvent) => {
       const msg = event.data?.pluginMessage;
       if (!msg) return;
-
-      if (msg.type === 'KLAVIYO_KEY_LOADED') {
-        if (msg.key) {
-          setKlaviyoKey(msg.key);
-          setStep('configure');
-        }
-      }
-
-      if (msg.type === 'KLAVIYO_KEY_SAVED') {
-        setStep('configure');
-      }
 
       if (msg.type === 'USER_INFO') {
         setFigmaUserName(msg.name ?? '');
@@ -86,20 +76,30 @@ export function TechMode({ frames }: Props) {
     setEditedSlices(combined);
   }, [klaviyoKey, frames.map(f => f.id + (f.existingSliceData ? '1' : '0')).join(',')]);
 
-  const handleSaveKey = useCallback(() => {
-    const trimmed = keyInput.trim();
-    if (!trimmed.startsWith('pk_')) {
-      setKeyError('Klaviyo Private API keys start with "pk_". Check your key and try again.');
-      return;
+  /** Called by BrandKeyManager once user clicks "Use" on a brand. */
+  const handleBrandSelect = useCallback(async (brandName: string, apiKey: string) => {
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      // Verify the key works by fetching lists
+      const res = await fetch(`${BACKEND_URL}/api/klaviyo/lists`, {
+        headers: { 'X-Klaviyo-Key': apiKey }
+      });
+      if (!res.ok) throw new Error('Invalid API key or Klaviyo error. Check the key and try again.');
+      setKlaviyoKey(apiKey);
+      setActiveBrand(brandName);
+      setStep('configure');
+    } catch (e) {
+      setConnectError(e instanceof Error ? e.message : 'Connection failed');
+    } finally {
+      setConnecting(false);
     }
-    setKeyError(null);
-    setKlaviyoKey(trimmed);
-    parent.postMessage({ pluginMessage: { type: 'SAVE_KLAVIYO_KEY', key: trimmed } }, '*');
-  }, [keyInput]);
+  }, []);
 
   const handleChangeKey = useCallback(() => {
-    setKeyInput('');
-    setKeyError(null);
+    setKlaviyoKey(null);
+    setActiveBrand(null);
+    setConnectError(null);
     setStep('key_setup');
   }, []);
 
@@ -210,50 +210,32 @@ export function TechMode({ frames }: Props) {
         </div>
       )}
 
-      {/* API Key Setup */}
+      {/* Brand Selection */}
       {step === 'key_setup' && (
         <div class="step-panel">
-          <div class="key-setup-header">
-            <div class="key-icon">🔑</div>
-            <p>Enter your Klaviyo Private API key. It's saved locally in Figma — you only need to do this once.</p>
-          </div>
-
-          <div class="form-field">
-            <label>Klaviyo Private API Key</label>
-            <input
-              type="password"
-              value={keyInput}
-              placeholder="pk_••••••••••••••••••••••••••••"
-              onInput={(e) => {
-                setKeyInput((e.target as HTMLInputElement).value);
-                setKeyError(null);
-              }}
-              onKeyDown={(e) => e.key === 'Enter' && handleSaveKey()}
-            />
-            {keyError && <span class="field-error">{keyError}</span>}
-          </div>
-
-          <p class="key-hint">Find it in Klaviyo → Settings → API Keys → Create Private API Key</p>
-
-          <button
-            class="btn-primary"
-            disabled={!keyInput.trim()}
-            onClick={handleSaveKey}
-          >
-            Save & Continue →
-          </button>
+          {connectError && (
+            <div class="error-banner" style={{ marginBottom: 10 }}>
+              ⚠ {connectError}
+              <button onClick={() => setConnectError(null)}>✕</button>
+            </div>
+          )}
+          {connecting ? (
+            <div class="loading" style={{ padding: '24px 0', textAlign: 'center' }}>
+              <div class="spinner" />
+              <p style={{ marginTop: 10 }}>Connecting…</p>
+            </div>
+          ) : (
+            <BrandKeyManager onSelect={handleBrandSelect} />
+          )}
         </div>
       )}
 
       {/* Configure & Push */}
       {step === 'configure' && (
         <div class="step-panel">
-          <div class="identity-bar">
-            <span>👤 {figmaUserName || 'Figma User'}</span>
-            <div class="key-indicator">
-              <span class="key-masked">pk_••••••••</span>
-              <button class="btn-link" onClick={handleChangeKey}>Change key</button>
-            </div>
+          <div class="connected-banner">
+            <span>✓ Connected — {activeBrand}</span>
+            <button class="btn-link" onClick={handleChangeKey}>Switch brand</button>
           </div>
 
           {readyFrames.length === 0 ? (

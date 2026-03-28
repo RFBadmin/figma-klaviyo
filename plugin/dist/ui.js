@@ -1604,16 +1604,279 @@
     ] });
   }
 
-  // src/components/TechMode.tsx
+  // src/components/BrandKeyManager.tsx
   var BACKEND_URL2 = "https://figma-klaviyo-production.up.railway.app";
+  function BrandKeyManager({ onSelect }) {
+    const [brands, setBrands] = d2([]);
+    const [search, setSearch] = d2("");
+    const [loading, setLoading] = d2(true);
+    const [error, setError] = d2(null);
+    const [selectingBrand, setSelectingBrand] = d2(null);
+    const [selectError, setSelectError] = d2(null);
+    const [editingBrand, setEditingBrand] = d2(null);
+    const [editName, setEditName] = d2("");
+    const [editKey, setEditKey] = d2("");
+    const [editSaving, setEditSaving] = d2(false);
+    const [editError, setEditError] = d2(null);
+    const [newName, setNewName] = d2("");
+    const [newKey, setNewKey] = d2("");
+    const [adding, setAdding] = d2(false);
+    const [addError, setAddError] = d2(null);
+    const fetchBrands = () => __async(null, null, function* () {
+      var _a;
+      setLoading(true);
+      setError(null);
+      try {
+        const res = yield fetch(`${BACKEND_URL2}/api/brands`);
+        if (!res.ok) throw new Error(`Server error: ${res.status}`);
+        const data = yield res.json();
+        setBrands((_a = data.brands) != null ? _a : []);
+      } catch (e3) {
+        setError(e3 instanceof Error ? e3.message : "Failed to load brands");
+      } finally {
+        setLoading(false);
+      }
+    });
+    y2(() => {
+      fetchBrands();
+    }, []);
+    const filteredBrands = brands.filter(
+      (b) => b.toLowerCase().includes(search.toLowerCase())
+    );
+    const handleSelect = (name) => __async(null, null, function* () {
+      setSelectingBrand(name);
+      setSelectError(null);
+      try {
+        const res = yield fetch(`${BACKEND_URL2}/api/brands/${encodeURIComponent(name)}/key`);
+        if (!res.ok) throw new Error(`Failed to retrieve key for "${name}"`);
+        const data = yield res.json();
+        onSelect(name, data.apiKey);
+      } catch (e3) {
+        setSelectError(e3 instanceof Error ? e3.message : "Failed to retrieve key");
+        setSelectingBrand(null);
+      }
+    });
+    const handleDelete = (name) => __async(null, null, function* () {
+      if (!confirm(`Delete brand "${name}"?`)) return;
+      try {
+        const res = yield fetch(`${BACKEND_URL2}/api/brands/${encodeURIComponent(name)}`, {
+          method: "DELETE"
+        });
+        if (!res.ok) throw new Error("Delete failed");
+        setBrands((prev) => prev.filter((b) => b !== name));
+      } catch (e3) {
+        setError(e3 instanceof Error ? e3.message : "Delete failed");
+      }
+    });
+    const startEdit = (name) => {
+      setEditingBrand(name);
+      setEditName(name);
+      setEditKey("");
+      setEditError(null);
+    };
+    const cancelEdit = () => {
+      setEditingBrand(null);
+      setEditName("");
+      setEditKey("");
+      setEditError(null);
+    };
+    const handleSaveEdit = () => __async(null, null, function* () {
+      if (!editingBrand) return;
+      if (!editName.trim()) {
+        setEditError("Brand name is required");
+        return;
+      }
+      if (editKey && !editKey.startsWith("pk_")) {
+        setEditError("API key must start with pk_");
+        return;
+      }
+      setEditSaving(true);
+      setEditError(null);
+      try {
+        const body = { name: editName.trim() };
+        if (editKey.trim()) body.apiKey = editKey.trim();
+        const res = yield fetch(
+          `${BACKEND_URL2}/api/brands/${encodeURIComponent(editingBrand)}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+          }
+        );
+        if (!res.ok) {
+          const d3 = yield res.json().catch(() => ({}));
+          throw new Error(d3.error || "Save failed");
+        }
+        yield fetchBrands();
+        cancelEdit();
+      } catch (e3) {
+        setEditError(e3 instanceof Error ? e3.message : "Save failed");
+      } finally {
+        setEditSaving(false);
+      }
+    });
+    const handleAdd = () => __async(null, null, function* () {
+      if (!newName.trim()) {
+        setAddError("Brand name is required");
+        return;
+      }
+      if (!newKey.trim()) {
+        setAddError("API key is required");
+        return;
+      }
+      if (!newKey.startsWith("pk_")) {
+        setAddError("API key must start with pk_");
+        return;
+      }
+      setAdding(true);
+      setAddError(null);
+      try {
+        const res = yield fetch(`${BACKEND_URL2}/api/brands`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: newName.trim(), apiKey: newKey.trim() })
+        });
+        if (!res.ok) {
+          const d3 = yield res.json().catch(() => ({}));
+          throw new Error(d3.error || "Add failed");
+        }
+        setNewName("");
+        setNewKey("");
+        yield fetchBrands();
+      } catch (e3) {
+        setAddError(e3 instanceof Error ? e3.message : "Add failed");
+      } finally {
+        setAdding(false);
+      }
+    });
+    return /* @__PURE__ */ u3("div", { class: "brand-manager", children: [
+      /* @__PURE__ */ u3("div", { class: "key-setup-header", children: [
+        /* @__PURE__ */ u3("div", { class: "key-icon", children: "\u{1F3F7}\uFE0F" }),
+        /* @__PURE__ */ u3("p", { children: "Select a brand to connect its Klaviyo account, or add a new brand below." })
+      ] }),
+      error && /* @__PURE__ */ u3("div", { class: "error-banner", children: [
+        "\u26A0 ",
+        error,
+        /* @__PURE__ */ u3("button", { onClick: () => setError(null), children: "\u2715" })
+      ] }),
+      selectError && /* @__PURE__ */ u3("div", { class: "error-banner", children: [
+        "\u26A0 ",
+        selectError,
+        /* @__PURE__ */ u3("button", { onClick: () => setSelectError(null), children: "\u2715" })
+      ] }),
+      /* @__PURE__ */ u3("div", { class: "form-field", style: { marginBottom: 6 }, children: /* @__PURE__ */ u3(
+        "input",
+        {
+          type: "text",
+          placeholder: "\u{1F50D} Search brand...",
+          value: search,
+          onInput: (e3) => setSearch(e3.target.value)
+        }
+      ) }),
+      loading ? /* @__PURE__ */ u3("div", { class: "brand-empty", children: "Loading brands\u2026" }) : filteredBrands.length === 0 ? /* @__PURE__ */ u3("div", { class: "brand-empty", children: brands.length === 0 ? "No brands yet \u2014 add one below." : "No brands match your search." }) : /* @__PURE__ */ u3("div", { class: "brand-list", children: filteredBrands.map((name) => editingBrand === name ? /* @__PURE__ */ u3("div", { class: "brand-row brand-row-edit", children: [
+        /* @__PURE__ */ u3(
+          "input",
+          {
+            type: "text",
+            class: "brand-edit-input",
+            value: editName,
+            placeholder: "Brand name",
+            onInput: (e3) => setEditName(e3.target.value)
+          }
+        ),
+        /* @__PURE__ */ u3(
+          "input",
+          {
+            type: "password",
+            class: "brand-edit-input",
+            value: editKey,
+            placeholder: "New key (leave blank to keep)",
+            onInput: (e3) => setEditKey(e3.target.value)
+          }
+        ),
+        /* @__PURE__ */ u3("div", { class: "brand-row-actions", children: [
+          /* @__PURE__ */ u3(
+            "button",
+            {
+              class: "btn-xs btn-primary",
+              onClick: handleSaveEdit,
+              disabled: editSaving,
+              children: editSaving ? "\u2026" : "Save"
+            }
+          ),
+          /* @__PURE__ */ u3("button", { class: "btn-xs btn-secondary", onClick: cancelEdit, children: "Cancel" })
+        ] }),
+        editError && /* @__PURE__ */ u3("span", { class: "field-error", style: { gridColumn: "1/-1" }, children: editError })
+      ] }, name) : /* @__PURE__ */ u3("div", { class: "brand-row", children: [
+        /* @__PURE__ */ u3("span", { class: "brand-row-name", children: name }),
+        /* @__PURE__ */ u3("div", { class: "brand-row-actions", children: [
+          /* @__PURE__ */ u3(
+            "button",
+            {
+              class: "btn-xs btn-primary",
+              onClick: () => handleSelect(name),
+              disabled: selectingBrand === name,
+              children: selectingBrand === name ? "\u2026" : "Use"
+            }
+          ),
+          /* @__PURE__ */ u3("button", { class: "btn-xs btn-secondary", onClick: () => startEdit(name), children: "Edit" }),
+          /* @__PURE__ */ u3("button", { class: "btn-xs btn-danger", onClick: () => handleDelete(name), children: "\u2715" })
+        ] })
+      ] }, name)) }),
+      /* @__PURE__ */ u3("div", { class: "brand-add-section", children: [
+        /* @__PURE__ */ u3("div", { style: { fontSize: 11, fontWeight: 600, color: "var(--t2)", marginBottom: 6 }, children: "Add new brand" }),
+        /* @__PURE__ */ u3("div", { class: "brand-add-row", children: [
+          /* @__PURE__ */ u3(
+            "input",
+            {
+              type: "text",
+              placeholder: "Brand name",
+              value: newName,
+              onInput: (e3) => {
+                setNewName(e3.target.value);
+                setAddError(null);
+              }
+            }
+          ),
+          /* @__PURE__ */ u3(
+            "input",
+            {
+              type: "password",
+              placeholder: "pk_\u2022\u2022 API Key",
+              value: newKey,
+              onInput: (e3) => {
+                setNewKey(e3.target.value);
+                setAddError(null);
+              },
+              onKeyDown: (e3) => e3.key === "Enter" && handleAdd()
+            }
+          ),
+          /* @__PURE__ */ u3(
+            "button",
+            {
+              class: "btn-primary",
+              onClick: handleAdd,
+              disabled: adding || !newName.trim() || !newKey.trim(),
+              children: adding ? "\u2026" : "+ Add"
+            }
+          )
+        ] }),
+        addError && /* @__PURE__ */ u3("span", { class: "field-error", children: addError })
+      ] })
+    ] });
+  }
+
+  // src/components/TechMode.tsx
+  var BACKEND_URL3 = "https://figma-klaviyo-production.up.railway.app";
   function generateId2() {
     return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
   }
   function TechMode({ frames }) {
     const [step, setStep] = d2("key_setup");
     const [klaviyoKey, setKlaviyoKey] = d2(null);
-    const [keyInput, setKeyInput] = d2("");
-    const [keyError, setKeyError] = d2(null);
+    const [activeBrand, setActiveBrand] = d2(null);
+    const [connecting, setConnecting] = d2(false);
+    const [connectError, setConnectError] = d2(null);
     const [figmaUserName, setFigmaUserName] = d2("");
     const [editedSlices, setEditedSlices] = d2([]);
     const [klaviyoConfig, setKlaviyoConfig] = d2(null);
@@ -1623,21 +1886,11 @@
     const [pushingFrame, setPushingFrame] = d2(null);
     const readyFrames = frames.filter((f4) => f4.existingSliceData);
     y2(() => {
-      parent.postMessage({ pluginMessage: { type: "GET_KLAVIYO_KEY" } }, "*");
       parent.postMessage({ pluginMessage: { type: "GET_USER_INFO" } }, "*");
       const handler = (event) => {
         var _a, _b;
         const msg = (_a = event.data) == null ? void 0 : _a.pluginMessage;
         if (!msg) return;
-        if (msg.type === "KLAVIYO_KEY_LOADED") {
-          if (msg.key) {
-            setKlaviyoKey(msg.key);
-            setStep("configure");
-          }
-        }
-        if (msg.type === "KLAVIYO_KEY_SAVED") {
-          setStep("configure");
-        }
         if (msg.type === "USER_INFO") {
           setFigmaUserName((_b = msg.name) != null ? _b : "");
         }
@@ -1656,25 +1909,33 @@
       }
       setEditedSlices(combined);
     }, [klaviyoKey, frames.map((f4) => f4.id + (f4.existingSliceData ? "1" : "0")).join(",")]);
-    const handleSaveKey = q2(() => {
-      const trimmed = keyInput.trim();
-      if (!trimmed.startsWith("pk_")) {
-        setKeyError('Klaviyo Private API keys start with "pk_". Check your key and try again.');
-        return;
+    const handleBrandSelect = q2((brandName, apiKey) => __async(null, null, function* () {
+      setConnecting(true);
+      setConnectError(null);
+      try {
+        const res = yield fetch(`${BACKEND_URL3}/api/klaviyo/lists`, {
+          headers: { "X-Klaviyo-Key": apiKey }
+        });
+        if (!res.ok) throw new Error("Invalid API key or Klaviyo error. Check the key and try again.");
+        setKlaviyoKey(apiKey);
+        setActiveBrand(brandName);
+        setStep("configure");
+      } catch (e3) {
+        setConnectError(e3 instanceof Error ? e3.message : "Connection failed");
+      } finally {
+        setConnecting(false);
       }
-      setKeyError(null);
-      setKlaviyoKey(trimmed);
-      parent.postMessage({ pluginMessage: { type: "SAVE_KLAVIYO_KEY", key: trimmed } }, "*");
-    }, [keyInput]);
+    }), []);
     const handleChangeKey = q2(() => {
-      setKeyInput("");
-      setKeyError(null);
+      setKlaviyoKey(null);
+      setActiveBrand(null);
+      setConnectError(null);
       setStep("key_setup");
     }, []);
     const handlePreviewHtml = q2(() => __async(null, null, function* () {
       if (editedSlices.length === 0) return;
       try {
-        const res = yield fetch(`${BACKEND_URL2}/api/klaviyo/preview`, {
+        const res = yield fetch(`${BACKEND_URL3}/api/klaviyo/preview`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ slices: editedSlices })
@@ -1705,7 +1966,7 @@
             templateName: isMultiFrame ? `${klaviyoConfig.templateName} \u2014 ${f4.name}` : klaviyoConfig.templateName,
             campaignName: isMultiFrame ? `${klaviyoConfig.campaignName} \u2014 ${f4.name}` : klaviyoConfig.campaignName
           });
-          const res = yield fetch(`${BACKEND_URL2}/api/klaviyo/push`, {
+          const res = yield fetch(`${BACKEND_URL3}/api/klaviyo/push`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -1749,48 +2010,23 @@ ${JSON.stringify(errData.detail, null, 2)}` : "";
         /* @__PURE__ */ u3("button", { onClick: () => setError(null), children: "\u2715" })
       ] }),
       step === "key_setup" && /* @__PURE__ */ u3("div", { class: "step-panel", children: [
-        /* @__PURE__ */ u3("div", { class: "key-setup-header", children: [
-          /* @__PURE__ */ u3("div", { class: "key-icon", children: "\u{1F511}" }),
-          /* @__PURE__ */ u3("p", { children: "Enter your Klaviyo Private API key. It's saved locally in Figma \u2014 you only need to do this once." })
+        connectError && /* @__PURE__ */ u3("div", { class: "error-banner", style: { marginBottom: 10 }, children: [
+          "\u26A0 ",
+          connectError,
+          /* @__PURE__ */ u3("button", { onClick: () => setConnectError(null), children: "\u2715" })
         ] }),
-        /* @__PURE__ */ u3("div", { class: "form-field", children: [
-          /* @__PURE__ */ u3("label", { children: "Klaviyo Private API Key" }),
-          /* @__PURE__ */ u3(
-            "input",
-            {
-              type: "password",
-              value: keyInput,
-              placeholder: "pk_\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022",
-              onInput: (e3) => {
-                setKeyInput(e3.target.value);
-                setKeyError(null);
-              },
-              onKeyDown: (e3) => e3.key === "Enter" && handleSaveKey()
-            }
-          ),
-          keyError && /* @__PURE__ */ u3("span", { class: "field-error", children: keyError })
-        ] }),
-        /* @__PURE__ */ u3("p", { class: "key-hint", children: "Find it in Klaviyo \u2192 Settings \u2192 API Keys \u2192 Create Private API Key" }),
-        /* @__PURE__ */ u3(
-          "button",
-          {
-            class: "btn-primary",
-            disabled: !keyInput.trim(),
-            onClick: handleSaveKey,
-            children: "Save & Continue \u2192"
-          }
-        )
+        connecting ? /* @__PURE__ */ u3("div", { class: "loading", style: { padding: "24px 0", textAlign: "center" }, children: [
+          /* @__PURE__ */ u3("div", { class: "spinner" }),
+          /* @__PURE__ */ u3("p", { style: { marginTop: 10 }, children: "Connecting\u2026" })
+        ] }) : /* @__PURE__ */ u3(BrandKeyManager, { onSelect: handleBrandSelect })
       ] }),
       step === "configure" && /* @__PURE__ */ u3("div", { class: "step-panel", children: [
-        /* @__PURE__ */ u3("div", { class: "identity-bar", children: [
+        /* @__PURE__ */ u3("div", { class: "connected-banner", children: [
           /* @__PURE__ */ u3("span", { children: [
-            "\u{1F464} ",
-            figmaUserName || "Figma User"
+            "\u2713 Connected \u2014 ",
+            activeBrand
           ] }),
-          /* @__PURE__ */ u3("div", { class: "key-indicator", children: [
-            /* @__PURE__ */ u3("span", { class: "key-masked", children: "pk_\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" }),
-            /* @__PURE__ */ u3("button", { class: "btn-link", onClick: handleChangeKey, children: "Change key" })
-          ] })
+          /* @__PURE__ */ u3("button", { class: "btn-link", onClick: handleChangeKey, children: "Switch brand" })
         ] }),
         readyFrames.length === 0 ? /* @__PURE__ */ u3("div", { class: "warning-box", children: "\u26A0 No sliced frames found. Have the Design team slice frames first." }) : /* @__PURE__ */ u3(k, { children: [
           /* @__PURE__ */ u3("div", { class: "design-summary", children: [
@@ -1866,7 +2102,7 @@ ${JSON.stringify(errData.detail, null, 2)}` : "";
             KlaviyoConfig,
             {
               apiKey: klaviyoKey,
-              backendUrl: BACKEND_URL2,
+              backendUrl: BACKEND_URL3,
               defaultTemplateName: readyFrames.length === 1 ? readyFrames[0].name : "",
               onChange: setKlaviyoConfig
             }

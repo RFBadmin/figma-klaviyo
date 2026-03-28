@@ -8,6 +8,7 @@ load_dotenv()
 from routes.analyze import analyze_bp
 from routes.compress import compress_bp
 from routes.klaviyo import klaviyo_bp
+from routes.brands import brands_bp
 from utils.storage import temp_bp
 
 app = Flask(__name__)
@@ -19,6 +20,7 @@ CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 app.register_blueprint(analyze_bp)
 app.register_blueprint(compress_bp)
 app.register_blueprint(klaviyo_bp)
+app.register_blueprint(brands_bp)
 app.register_blueprint(temp_bp)
 
 
