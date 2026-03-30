@@ -2,7 +2,7 @@ import { h } from 'preact';
 import { useState, useEffect, useCallback } from 'preact/hooks';
 import { KlaviyoConfig } from './KlaviyoConfig';
 import { BrandKeyManager } from './BrandKeyManager';
-import type { SliceData, Slice, KlaviyoCampaignConfig } from '../types';
+import type { Slice, KlaviyoCampaignConfig } from '../types';
 import type { FrameInfo } from '../ui';
 
 const BACKEND_URL = 'https://figma-klaviyo-production.up.railway.app';
@@ -36,7 +36,7 @@ export function TechMode({ frames }: Props) {
   const [activeBrand, setActiveBrand] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
-  const [figmaUserName, setFigmaUserName] = useState<string>('');
+  const [figmaUserName, setFigmaUserName] = useState<string>(''); // reserved for future identity display
   const [editedSlices, setEditedSlices] = useState<TaggedSlice[]>([]);
   const [klaviyoConfig, setKlaviyoConfig] = useState<KlaviyoCampaignConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -106,17 +106,28 @@ export function TechMode({ frames }: Props) {
   const handlePreviewHtml = useCallback(async () => {
     if (editedSlices.length === 0) return;
     try {
+      // Fetch fresh images from Figma so preview shows actual slices, not broken URLs
+      const enrichedSlices = editedSlices.map(s => ({ ...s }));
+      for (const f of readyFrames) {
+        const imageMap = await fetchFigmaSliceImages(f.id);
+        for (const slice of enrichedSlices) {
+          if (slice._frameId === f.id) {
+            const img = imageMap.get(slice.name);
+            if (img) (slice as Record<string, unknown>).image_base64 = img;
+          }
+        }
+      }
       const res = await fetch(`${BACKEND_URL}/api/klaviyo/preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slices: editedSlices })
+        body: JSON.stringify({ slices: enrichedSlices })
       });
       const data = await res.json();
       setPreviewHtml(data.html);
     } catch {
       setError('Failed to generate preview.');
     }
-  }, [editedSlices]);
+  }, [editedSlices, readyFrames]);
 
   /**
    * Push each ready frame as its own separate template + campaign.

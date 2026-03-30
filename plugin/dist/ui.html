@@ -2479,17 +2479,27 @@
     const handlePreviewHtml = q2(() => __async(null, null, function* () {
       if (editedSlices.length === 0) return;
       try {
+        const enrichedSlices = editedSlices.map((s3) => __spreadValues({}, s3));
+        for (const f4 of readyFrames) {
+          const imageMap = yield fetchFigmaSliceImages(f4.id);
+          for (const slice of enrichedSlices) {
+            if (slice._frameId === f4.id) {
+              const img = imageMap.get(slice.name);
+              if (img) slice.image_base64 = img;
+            }
+          }
+        }
         const res = yield fetch(`${BACKEND_URL3}/api/klaviyo/preview`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ slices: editedSlices })
+          body: JSON.stringify({ slices: enrichedSlices })
         });
         const data = yield res.json();
         setPreviewHtml(data.html);
       } catch (e3) {
         setError("Failed to generate preview.");
       }
-    }), [editedSlices]);
+    }), [editedSlices, readyFrames]);
     const handlePush = q2(() => __async(null, null, function* () {
       if (!klaviyoKey || !klaviyoConfig) return;
       setError(null);

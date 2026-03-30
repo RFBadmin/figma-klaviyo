@@ -11,7 +11,11 @@ def build_email_html(slices: List[dict]) -> str:
     for slice_item in slices:
         link = _normalize_url(slice_item.get('link') or '#')
         alt_text = slice_item.get('alt_text') or slice_item.get('name', '')
-        image_url = slice_item.get('klaviyo_url') or slice_item.get('compressed_url') or ''
+        image_url = (
+            slice_item.get('klaviyo_url')
+            or slice_item.get('compressed_url')
+            or (f"data:image/png;base64,{slice_item['image_base64']}" if slice_item.get('image_base64') else '')
+        )
 
         slice_rows += f"""
         <tr>

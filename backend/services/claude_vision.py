@@ -6,7 +6,7 @@ import re
 
 from PIL import Image
 
-MODEL = "claude-sonnet-4-6"
+MODEL = "claude-haiku-4-5"
 
 # Max height to send to Claude — Figma exports 2x so a 3000px email becomes 6000px.
 # Resizing to 1500px max saves ~70% tokens with no loss for layout analysis.
