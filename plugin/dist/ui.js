@@ -648,6 +648,10 @@
 
   // src/config.ts
   var BACKEND_URL = "https://figma-klaviyo-production.up.railway.app";
+  var PLUGIN_SECRET = "8dc466e0667c558bea652e3343932e0997557425b91f22e70c0f5570a1548e09";
+  function authHeaders(extra) {
+    return __spreadValues({ "X-Plugin-Secret": PLUGIN_SECRET }, extra);
+  }
 
   // src/components/DesignerMode.tsx
   var defaultState = () => ({
@@ -776,7 +780,7 @@
         fetchControllerRef.current = controller;
         const response = yield fetch(`${BACKEND_URL}/api/analyze`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: authHeaders({ "Content-Type": "application/json" }),
           signal: controller.signal,
           body: JSON.stringify({
             image_base64: base64,
@@ -874,7 +878,7 @@
         }
         const response = yield fetch(`${BACKEND_URL}/api/compress`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({
             slices: sliceExports,
             settings: {
@@ -1628,7 +1632,7 @@
       setLoading(true);
       setError(null);
       try {
-        const res = yield fetch(`${BACKEND_URL}/api/brands`);
+        const res = yield fetch(`${BACKEND_URL}/api/brands`, { headers: authHeaders() });
         if (!res.ok) throw new Error(`Server error: ${res.status}`);
         const data = yield res.json();
         setBrands((_a = data.brands) != null ? _a : []);
@@ -1648,7 +1652,7 @@
       setSelectingBrand(name);
       setSelectError(null);
       try {
-        const res = yield fetch(`${BACKEND_URL}/api/brands/${encodeURIComponent(name)}/key`);
+        const res = yield fetch(`${BACKEND_URL}/api/brands/${encodeURIComponent(name)}/key`, { headers: authHeaders() });
         if (!res.ok) throw new Error(`Failed to retrieve key for "${name}"`);
         const data = yield res.json();
         onSelect(name, data.apiKey);
@@ -1661,7 +1665,8 @@
       if (!confirm(`Delete brand "${name}"?`)) return;
       try {
         const res = yield fetch(`${BACKEND_URL}/api/brands/${encodeURIComponent(name)}`, {
-          method: "DELETE"
+          method: "DELETE",
+          headers: authHeaders()
         });
         if (!res.ok) throw new Error("Delete failed");
         setBrands((prev) => prev.filter((b) => b !== name));
@@ -1700,7 +1705,7 @@
           `${BACKEND_URL}/api/brands/${encodeURIComponent(editingBrand)}`,
           {
             method: "PUT",
-            headers: { "Content-Type": "application/json" },
+            headers: authHeaders({ "Content-Type": "application/json" }),
             body: JSON.stringify(body)
           }
         );
@@ -1734,7 +1739,7 @@
       try {
         const res = yield fetch(`${BACKEND_URL}/api/brands`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ name: newName.trim(), apiKey: newKey.trim() })
         });
         if (!res.ok) {
@@ -1877,7 +1882,7 @@
     const [activeBrand, setActiveBrand] = d2(null);
     const [connecting, setConnecting] = d2(false);
     const [connectError, setConnectError] = d2(null);
-    const [figmaUserName, setFigmaUserName] = d2("");
+    const [, setFigmaUserName] = d2("");
     const [editedSlices, setEditedSlices] = d2([]);
     const [klaviyoConfig, setKlaviyoConfig] = d2(null);
     const [error, setError] = d2(null);
@@ -1914,7 +1919,7 @@
       setConnectError(null);
       try {
         const res = yield fetch(`${BACKEND_URL}/api/klaviyo/lists`, {
-          headers: { "X-Klaviyo-Key": apiKey }
+          headers: authHeaders({ "X-Klaviyo-Key": apiKey })
         });
         if (!res.ok) throw new Error("Invalid API key or Klaviyo error. Check the key and try again.");
         setKlaviyoKey(apiKey);
@@ -1947,7 +1952,7 @@
         }
         const res = yield fetch(`${BACKEND_URL}/api/klaviyo/preview`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ slices: enrichedSlices })
         });
         const data = yield res.json();
@@ -1978,10 +1983,9 @@
           });
           const res = yield fetch(`${BACKEND_URL}/api/klaviyo/push`, {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
+            headers: __spreadProps(__spreadValues({}, authHeaders({ "Content-Type": "application/json" })), {
               "X-Klaviyo-Key": klaviyoKey
-            },
+            }),
             body: JSON.stringify({
               slices: slicesForPush,
               config: frameConfig

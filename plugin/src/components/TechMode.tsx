@@ -5,7 +5,7 @@ import { BrandKeyManager } from './BrandKeyManager';
 import type { Slice, KlaviyoCampaignConfig } from '../types';
 import type { FrameInfo } from '../ui';
 
-import { BACKEND_URL } from '../config';
+import { BACKEND_URL, authHeaders } from '../config';
 
 type Step = 'key_setup' | 'configure' | 'pushing' | 'done';
 
@@ -36,7 +36,7 @@ export function TechMode({ frames }: Props) {
   const [activeBrand, setActiveBrand] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
-  const [figmaUserName, setFigmaUserName] = useState<string>(''); // reserved for future identity display
+  const [, setFigmaUserName] = useState<string>('');
   const [editedSlices, setEditedSlices] = useState<TaggedSlice[]>([]);
   const [klaviyoConfig, setKlaviyoConfig] = useState<KlaviyoCampaignConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -83,7 +83,7 @@ export function TechMode({ frames }: Props) {
     try {
       // Verify the key works by fetching lists
       const res = await fetch(`${BACKEND_URL}/api/klaviyo/lists`, {
-        headers: { 'X-Klaviyo-Key': apiKey }
+        headers: authHeaders({ 'X-Klaviyo-Key': apiKey })
       });
       if (!res.ok) throw new Error('Invalid API key or Klaviyo error. Check the key and try again.');
       setKlaviyoKey(apiKey);
@@ -119,7 +119,7 @@ export function TechMode({ frames }: Props) {
       }
       const res = await fetch(`${BACKEND_URL}/api/klaviyo/preview`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ slices: enrichedSlices })
       });
       const data = await res.json();
@@ -172,7 +172,7 @@ export function TechMode({ frames }: Props) {
         const res = await fetch(`${BACKEND_URL}/api/klaviyo/push`, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
+            ...authHeaders({ 'Content-Type': 'application/json' }),
             'X-Klaviyo-Key': klaviyoKey
           },
           body: JSON.stringify({

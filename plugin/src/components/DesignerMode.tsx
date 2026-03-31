@@ -3,7 +3,7 @@ import { SlicePreview } from './SlicePreview';
 import type { Slice, SliceData, CompressedSlice, CompressResponse, LayoutBand } from '../types';
 import type { FrameInfo } from '../ui';
 
-import { BACKEND_URL } from '../config';
+import { BACKEND_URL, authHeaders } from '../config';
 
 type Step = 'select' | 'analyzing' | 'preview' | 'compressing' | 'results' | 'saved';
 
@@ -191,7 +191,7 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
       fetchControllerRef.current = controller;
       const response = await fetch(`${BACKEND_URL}/api/analyze`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         signal: controller.signal,
         body: JSON.stringify({
           image_base64: base64,
@@ -301,7 +301,7 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
 
       const response = await fetch(`${BACKEND_URL}/api/compress`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           slices: sliceExports,
           settings: {

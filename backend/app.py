@@ -28,14 +28,10 @@ app = Flask(__name__)
 # 50 MB max request body — prevents memory exhaustion from oversized base64 payloads
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 
-# CORS: only allow Figma plugin origins (not wildcard *)
-CORS(app, resources={r"/api/*": {
-    "origins": [
-        "https://www.figma.com",
-        "https://figma.com",
-        "null",  # Figma plugin iframes send Origin: null
-    ]
-}})
+# CORS: Figma plugins run in sandboxed iframes that send Origin: null.
+# flask-cors can't match the literal null origin with a whitelist, so we use *.
+# Security is handled by X-Plugin-Secret header on protected endpoints instead.
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # ── Auth middleware for expensive endpoints ───────────────────────────────────
 PLUGIN_SECRET = os.environ.get('PLUGIN_SECRET', '')

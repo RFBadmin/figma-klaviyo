@@ -1,7 +1,6 @@
-import { h } from 'preact';
 import { useState, useEffect } from 'preact/hooks';
 
-import { BACKEND_URL } from '../config';
+import { BACKEND_URL, authHeaders } from '../config';
 
 interface Props {
   onSelect: (brandName: string, apiKey: string) => void;
@@ -32,7 +31,7 @@ export function BrandKeyManager({ onSelect }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/brands`);
+      const res = await fetch(`${BACKEND_URL}/api/brands`, { headers: authHeaders() });
       if (!res.ok) throw new Error(`Server error: ${res.status}`);
       const data = await res.json();
       setBrands(data.brands ?? []);
@@ -53,7 +52,7 @@ export function BrandKeyManager({ onSelect }: Props) {
     setSelectingBrand(name);
     setSelectError(null);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/brands/${encodeURIComponent(name)}/key`);
+      const res = await fetch(`${BACKEND_URL}/api/brands/${encodeURIComponent(name)}/key`, { headers: authHeaders() });
       if (!res.ok) throw new Error(`Failed to retrieve key for "${name}"`);
       const data = await res.json();
       onSelect(name, data.apiKey);
@@ -67,7 +66,8 @@ export function BrandKeyManager({ onSelect }: Props) {
     if (!confirm(`Delete brand "${name}"?`)) return;
     try {
       const res = await fetch(`${BACKEND_URL}/api/brands/${encodeURIComponent(name)}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: authHeaders()
       });
       if (!res.ok) throw new Error('Delete failed');
       setBrands(prev => prev.filter(b => b !== name));
@@ -106,7 +106,7 @@ export function BrandKeyManager({ onSelect }: Props) {
         `${BACKEND_URL}/api/brands/${encodeURIComponent(editingBrand)}`,
         {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify(body)
         }
       );
@@ -132,7 +132,7 @@ export function BrandKeyManager({ onSelect }: Props) {
     try {
       const res = await fetch(`${BACKEND_URL}/api/brands`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ name: newName.trim(), apiKey: newKey.trim() })
       });
       if (!res.ok) {
