@@ -40,6 +40,9 @@ PLUGIN_SECRET = os.environ.get('PLUGIN_SECRET', '')
 def check_plugin_auth():
     """Require X-Plugin-Secret header on expensive endpoints (analyze, compress, brands)."""
     from flask import request
+    # Skip CORS preflight — browsers send OPTIONS without custom headers
+    if request.method == 'OPTIONS':
+        return None
     # Skip auth if no secret configured (local dev)
     if not PLUGIN_SECRET:
         return None
