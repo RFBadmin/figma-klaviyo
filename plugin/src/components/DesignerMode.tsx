@@ -3,7 +3,7 @@ import { SlicePreview } from './SlicePreview';
 import type { Slice, SliceData, CompressedSlice, CompressResponse, LayoutBand } from '../types';
 import type { FrameInfo } from '../ui';
 
-const BACKEND_URL = 'https://figma-klaviyo-production.up.railway.app';
+import { BACKEND_URL } from '../config';
 
 type Step = 'select' | 'analyzing' | 'preview' | 'compressing' | 'results' | 'saved';
 

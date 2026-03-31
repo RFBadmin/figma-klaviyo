@@ -28,6 +28,27 @@ def analyze():
     if not frame_width or not frame_height:
         return jsonify({'error': 'frame_width and frame_height are required'}), 400
 
+    # Validate dimensions
+    try:
+        frame_width = int(frame_width)
+        frame_height = int(frame_height)
+        if frame_width <= 0 or frame_height <= 0 or frame_height > 20000:
+            return jsonify({'error': 'frame dimensions must be positive and height ≤ 20000px'}), 400
+    except (TypeError, ValueError):
+        return jsonify({'error': 'frame_width and frame_height must be integers'}), 400
+
+    # Validate base64 size (rough check: 50MB base64 ≈ 37MB image)
+    if len(image_base64) > 50 * 1024 * 1024:
+        return jsonify({'error': 'image_base64 too large (max ~50MB)'}), 400
+
+    # Validate layer_bands structure if provided
+    if layer_bands:
+        if not isinstance(layer_bands, list):
+            return jsonify({'error': 'layer_bands must be an array'}), 400
+        for i, band in enumerate(layer_bands):
+            if not isinstance(band, dict) or 'y_start' not in band or 'y_end' not in band or 'name' not in band:
+                return jsonify({'error': f'layer_bands[{i}] must have y_start, y_end, and name'}), 400
+
     try:
         service = _get_service()
         result = service.analyze_email_design(

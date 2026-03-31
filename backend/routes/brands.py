@@ -61,10 +61,12 @@ def add_brand():
 
     if not name:
         return jsonify({'error': 'name is required'}), 400
+    if len(name) > 100:
+        return jsonify({'error': 'name must be 100 characters or fewer'}), 400
     if not api_key:
         return jsonify({'error': 'apiKey is required'}), 400
-    if not api_key.startswith('pk_'):
-        return jsonify({'error': 'apiKey must start with pk_'}), 400
+    if not api_key.startswith('pk_') or len(api_key) < 10 or len(api_key) > 200:
+        return jsonify({'error': 'apiKey must start with pk_ and be 10-200 characters'}), 400
 
     try:
         encrypted = encrypt_key(api_key)

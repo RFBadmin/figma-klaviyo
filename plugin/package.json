@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "description": "Figma to Klaviyo AI Plugin",
   "scripts": {
-    "build": "esbuild src/code.ts --bundle --outfile=dist/code.js --target=es6 && esbuild src/ui.tsx --bundle --outfile=dist/ui.js --target=es6 --jsx=automatic --jsx-import-source=preact && node build-ui.js",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && esbuild src/code.ts --bundle --outfile=dist/code.js --target=es6 && esbuild src/ui.tsx --bundle --outfile=dist/ui.js --target=es6 --jsx=automatic --jsx-import-source=preact && node build-ui.js",
     "watch": "esbuild src/code.ts --bundle --outfile=dist/code.js --target=es6 --watch & esbuild src/ui.tsx --bundle --outfile=dist/ui.js --target=es6 --jsx=automatic --jsx-import-source=preact --watch",
     "dev": "npm run watch"
   },

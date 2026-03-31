@@ -62,11 +62,16 @@ temp_bp = Blueprint('temp', __name__)
 @temp_bp.route('/temp/<filename>')
 def serve_temp_file(filename: str):
     """Serve a temporary compressed image file."""
-    # Security: only allow safe filenames
-    if '..' in filename or '/' in filename:
+    # Security: only allow safe filenames (alphanumeric + underscore + dot + dash)
+    import re
+    if not re.match(r'^[\w\-]+\.\w+$', filename):
         abort(400)
 
     filepath = os.path.join(TEMP_DIR, filename)
+    # Ensure resolved path is within TEMP_DIR (prevents symlink traversal)
+    if not os.path.realpath(filepath).startswith(os.path.realpath(TEMP_DIR)):
+        abort(400)
+
     if not os.path.exists(filepath):
         abort(404)
 

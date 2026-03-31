@@ -2,17 +2,66 @@ import anthropic
 import base64
 import io
 import json
+import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 from PIL import Image
 
-MODEL = "claude-sonnet-4-6"
+# ── Model constants ───────────────────────────────────────────────────────────
+MODEL_GROUPING      = "claude-haiku-4-5-20251001"  # Pass 1: text-only band grouping
+MODEL_ALT_TEXT      = "claude-haiku-4-5-20251001"  # Pass 3: per-slice vision
+MODEL_PIXEL_FALLBACK = "claude-sonnet-4-6"         # _analyze_pixels: harder task
 
-# Max height to send to Claude — Figma exports 2x so a 3000px email becomes 6000px.
-# Resizing to 1500px max saves ~70% tokens with no loss for layout analysis.
+# Max height before downscaling — only applied on the pixel-fallback path
 MAX_HEIGHT_PX = 1500
 
 
+# ── Prompts ───────────────────────────────────────────────────────────────────
+
+# Pass 1: text-only band grouping (no image sent to Claude)
+GROUP_PROMPT = """You are analyzing Figma layer metadata for an HTML email design.
+You will NOT see the image — reason from node types, names, pixel positions, and fill flags only.
+
+The design has {n} horizontal bands measured from the Figma canvas:
+
+{bands_list}
+
+Each band shows: position range, [NODE TYPE], [IMAGE FILL] if it contains a background/hero image, and the layer name.
+Node types: [FRAME] [RECTANGLE] [TEXT] [COMPONENT] [GROUP]
+
+GROUP consecutive bands into logical email sections. Each group becomes one exported image.
+
+Rules (apply in priority order):
+1. Overlapping Y ranges → same group (one element is layered over another).
+2. A [FRAME] or [COMPONENT] whose Y range falls inside an [IMAGE FILL] band → same group (CTA on hero).
+3. A [TEXT] band within 50px of an [IMAGE FILL] or large [FRAME] → same group (headline on image).
+4. Side-by-side elements already share one band — keep them together.
+5. Only start a new group where there is a clear horizontal gap and content is completely separate.
+6. Every band must belong to exactly one group in order (no skipping, no reordering).
+
+Give each group a short snake_case descriptive name (header, hero_cta, product_row_1, footer, etc.)
+
+Return ONLY valid JSON (no markdown):
+{{
+  "groups": [
+    {{"name": "snake_case_name", "band_indices": [0, 1]}}
+  ]
+}}
+
+band_indices must be consecutive integers covering 0 to {last_index} with no gaps."""
+
+
+# Pass 3: per-slice vision for alt text
+ALT_TEXT_PROMPT = """You are writing an HTML alt attribute for one horizontal slice of a marketing email.
+Slice name: "{slice_name}".
+Describe what you see in one sentence, under 125 characters.
+Be specific: mention visible headline text, products shown, CTA button text, or dominant colours.
+Do NOT say "email image", "marketing content", "banner", or repeat the slice name verbatim.
+Output only the alt text string — no JSON, no quotes, no explanation."""
+
+
+# Pixel-fallback: proportion-based output (no layer data available)
 SLICE_PROMPT = """You are slicing an email design image into horizontal strips for HTML email export.
 
 Rules:
@@ -24,48 +73,25 @@ Rules:
 
 Image dimensions: {width}px × {height}px
 
+IMPORTANT: Express cut positions as decimal fractions of the total image height (0.0 to 1.0), NOT pixel values.
+Example: a section break 1/3 of the way down → 0.333
+
 Return ONLY valid JSON (no markdown, no explanation):
 {{
   "slices": [
-    {{"name": "snake_case_name", "y_start": 0, "y_end": 150, "alt_text": "Brief description"}}
+    {{"name": "snake_case_name", "y_start_pct": 0.0, "y_end_pct": 0.22, "alt_text": "Brief description"}}
   ],
   "analysis": "One sentence explaining the cuts"
 }}
 
 Constraints:
-- y_end of slice N must equal y_start of slice N+1 (no gaps, no overlaps)
-- First slice: y_start = 0
-- Last slice: y_end = {height}
-- All y values must be integers"""
+- y_end_pct of slice N must equal y_start_pct of slice N+1 (no gaps, no overlaps)
+- First slice: y_start_pct = 0.0
+- Last slice: y_end_pct = 1.0
+- All values must be floats between 0.0 and 1.0"""
 
 
-GROUP_PROMPT = """You are slicing an email design into sections for HTML email export.
-The design's Figma layers have been measured into {n} horizontal bands:
-
-{bands_list}
-
-Each band: position, [NODE TYPE], [IMAGE FILL] if it has a background/hero image, and layer name.
-Node types: [FRAME] [RECTANGLE] [TEXT] [COMPONENT] [GROUP]
-
-GROUP consecutive bands into logical email sections. Each group = one exported image.
-
-Rules (in priority order):
-1. Overlapping Y ranges → same group (one element layers over another).
-2. A [FRAME] or [COMPONENT] inside an [IMAGE FILL] band → same group (e.g. CTA button on hero).
-3. A [TEXT] band within 50px of an [IMAGE FILL] or large [FRAME] → same group (headline on image).
-4. Side-by-side elements already share one band — keep together.
-5. Only start a new group at a clear horizontal gap where content is completely separate.
-6. Every band must belong to exactly one group in order (no skipping, no reordering).
-
-Return ONLY valid JSON (no markdown):
-{{
-  "groups": [
-    {{"name": "snake_case_name", "band_indices": [0, 1], "alt_text": "Brief description"}}
-  ]
-}}
-
-band_indices must cover every index from 0 to {last_index} with no gaps."""
-
+# ── Service ───────────────────────────────────────────────────────────────────
 
 class ClaudeVisionService:
     def __init__(self):
@@ -78,29 +104,17 @@ class ClaudeVisionService:
         height: int,
         layer_bands: list | None = None
     ) -> dict:
-        image_base64, height = self._maybe_downscale(image_base64, height)
         if layer_bands:
+            # Master image stays at full 2x resolution — Pillow crops must match Figma coords
             return self._group_bands(image_base64, width, height, layer_bands)
+        # Downscale only for the pixel path where image is sent to Claude
+        image_base64, height = self._maybe_downscale(image_base64, height)
         return self._analyze_pixels(image_base64, width, height)
 
-    def _maybe_downscale(self, image_base64: str, original_height: int) -> tuple[str, int]:
-        """Resize the image if taller than MAX_HEIGHT_PX to save tokens."""
-        if original_height <= MAX_HEIGHT_PX:
-            return image_base64, original_height
-
-        img_bytes = base64.b64decode(image_base64)
-        img = Image.open(io.BytesIO(img_bytes))
-        w, h = img.size
-        scale = MAX_HEIGHT_PX / h
-        new_w, new_h = int(w * scale), MAX_HEIGHT_PX
-        img = img.resize((new_w, new_h), Image.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, format='PNG', optimize=True)
-        new_b64 = base64.b64encode(buf.getvalue()).decode()
-        print(f'[analyze] downscaled image {h}px → {new_h}px')
-        return new_b64, new_h
+    # ── Pass helpers ──────────────────────────────────────────────────────────
 
     def _group_bands(self, image_base64: str, width: int, height: int, bands: list) -> dict:
+        # ── Pass 1: text-only grouping ────────────────────────────────────────
         def fmt_band(i, b):
             node_type = b.get('nodeType', '?')
             img_flag = ' [IMAGE FILL]' if b.get('hasImageFill') else ''
@@ -114,19 +128,15 @@ class ClaudeVisionService:
         )
 
         message = self.client.messages.create(
-            model=MODEL,
-            max_tokens=1024,
+            model=MODEL_GROUPING,
+            max_tokens=512,
             messages=[{
                 "role": "user",
-                "content": [
-                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image_base64}},
-                    {"type": "text", "text": prompt}
-                ]
+                "content": [{"type": "text", "text": prompt}]
             }]
         )
 
-        response_text = message.content[0].text
-        result = self._parse_json(response_text)
+        result = self._parse_json(message.content[0].text)
         groups = result.get('groups', [])
 
         if not groups:
@@ -137,12 +147,13 @@ class ClaudeVisionService:
         for g in groups:
             covered.extend(g.get('band_indices', []))
         if sorted(covered) != list(range(len(bands))):
-            print('[analyze] band coverage mismatch — falling back to one group per band')
+            logging.warning('[analyze] band coverage mismatch — falling back to one group per band')
             groups = [
-                {'name': b['name'], 'band_indices': [i], 'alt_text': b['name']}
+                {'name': b['name'], 'band_indices': [i]}
                 for i, b in enumerate(bands)
             ]
 
+        # Build slices from exact Figma pixel positions (placeholder alt text for now)
         slices = []
         for g in groups:
             indices = sorted(g.get('band_indices', []))
@@ -152,18 +163,71 @@ class ClaudeVisionService:
                 'name': g['name'],
                 'y_start': bands[indices[0]]['y_start'],
                 'y_end': bands[indices[-1]]['y_end'],
-                'alt_text': g.get('alt_text', g['name'])
+                'alt_text': g['name']  # overwritten in Pass 3
             })
 
         slices.sort(key=lambda s: s['y_start'])
         self._validate_slices(slices, height)
-        return {'slices': slices, 'analysis': result.get('analysis', 'Layer-guided grouping')}
+
+        # ── Pass 2: Pillow physical slicing ───────────────────────────────────
+        slice_images = self._slice_image(image_base64, slices)
+
+        # ── Pass 3: parallel alt-text vision ─────────────────────────────────
+        alt_texts = self._generate_alt_texts(slice_images, [s['name'] for s in slices])
+        for s, alt in zip(slices, alt_texts):
+            s['alt_text'] = alt
+
+        return {'slices': slices, 'analysis': 'Layer-guided grouping with vision alt-text'}
+
+    def _slice_image(self, image_base64: str, slices: list) -> list[str]:
+        """Pillow-crop the master image into per-slice PNGs. Returns list of b64 strings."""
+        img = Image.open(io.BytesIO(base64.b64decode(image_base64)))
+        results = []
+        for s in slices:
+            y_end = min(s['y_end'], img.height)  # clamp defensively
+            crop = img.crop((0, s['y_start'], img.width, y_end))
+            buf = io.BytesIO()
+            crop.save(buf, format='PNG')
+            results.append(base64.b64encode(buf.getvalue()).decode())
+        return results
+
+    def _generate_alt_texts(self, images_b64: list[str], names: list[str]) -> list[str]:
+        """Fan out alt-text vision calls in parallel. Never raises."""
+        if not images_b64:
+            return []
+        workers = min(len(images_b64), 5)
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = [
+                ex.submit(self._alt_text_for_slice, b64, name)
+                for b64, name in zip(images_b64, names)
+            ]
+            return [f.result() for f in futures]
+
+    def _alt_text_for_slice(self, image_b64: str, name: str) -> str:
+        """Single Claude Haiku call for one slice's alt text. Falls back to name on error."""
+        try:
+            msg = self.client.messages.create(
+                model=MODEL_ALT_TEXT,
+                max_tokens=100,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image_b64}},
+                        {"type": "text", "text": ALT_TEXT_PROMPT.format(slice_name=name)}
+                    ]
+                }]
+            )
+            return msg.content[0].text.strip()
+        except Exception as e:
+            logging.warning(f"[analyze] alt text failed for '{name}': {e}")
+            return name
 
     def _analyze_pixels(self, image_base64: str, width: int, height: int) -> dict:
+        """Fallback when no Figma layer data. Uses proportion-based output to avoid coordinate hallucination."""
         prompt = SLICE_PROMPT.format(width=width, height=height)
 
         message = self.client.messages.create(
-            model=MODEL,
+            model=MODEL_PIXEL_FALLBACK,
             max_tokens=2048,
             messages=[{
                 "role": "user",
@@ -174,10 +238,37 @@ class ClaudeVisionService:
             }]
         )
 
-        response_text = message.content[0].text
-        result = self._parse_json(response_text)
-        self._validate_slices(result.get('slices', []), height)
+        result = self._parse_json(message.content[0].text)
+        slices = result.get('slices', [])
+
+        # Convert proportions → integer pixel values
+        for s in slices:
+            y_start_pct = max(0.0, min(1.0, s.pop('y_start_pct', 0.0)))
+            y_end_pct   = max(0.0, min(1.0, s.pop('y_end_pct',   1.0)))
+            s['y_start'] = round(y_start_pct * height)
+            s['y_end']   = round(y_end_pct   * height)
+
+        self._validate_slices(slices, height)
         return result
+
+    # ── Utilities ─────────────────────────────────────────────────────────────
+
+    def _maybe_downscale(self, image_base64: str, original_height: int) -> tuple[str, int]:
+        """Resize image if taller than MAX_HEIGHT_PX. Only used for the pixel-fallback path."""
+        if original_height <= MAX_HEIGHT_PX:
+            return image_base64, original_height
+
+        img_bytes = base64.b64decode(image_base64)
+        img = Image.open(io.BytesIO(img_bytes))
+        w, h = img.size
+        scale = MAX_HEIGHT_PX / h
+        new_w, new_h = int(w * scale), MAX_HEIGHT_PX
+        img = img.resize((new_w, new_h), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format='PNG', optimize=True)
+        new_b64 = base64.b64encode(buf.getvalue()).decode()
+        logging.info(f'[analyze] downscaled image {h}px → {new_h}px for pixel analysis')
+        return new_b64, new_h
 
     def _parse_json(self, text: str) -> dict:
         """Extract and parse JSON from Claude's response, tolerating minor formatting issues."""
@@ -188,7 +279,6 @@ class ClaudeVisionService:
         try:
             return json.loads(raw)
         except json.JSONDecodeError:
-            # Strip trailing commas before ] or } and retry
             cleaned = re.sub(r',\s*([\]}])', r'\1', raw)
             try:
                 return json.loads(cleaned)

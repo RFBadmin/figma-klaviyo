@@ -33,10 +33,15 @@ def compress():
     if not slices:
         return jsonify({'error': 'slices array is required'}), 400
 
-    target_kb = int(settings.get('target_size_kb', 100))
-    max_kb = int(settings.get('max_size_kb', 200))
-    quality = int(settings.get('quality', 82))
+    try:
+        target_kb = max(1, min(int(settings.get('target_size_kb', 100)), 5000))
+        max_kb = max(1, min(int(settings.get('max_size_kb', 200)), 10000))
+        quality = max(1, min(int(settings.get('quality', 82)), 100))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Invalid compression settings'}), 400
     fmt = str(settings.get('format', 'auto'))
+    if fmt not in ('auto', 'jpeg', 'png'):
+        return jsonify({'error': 'format must be auto, jpeg, or png'}), 400
     target_bytes = target_kb * 1024
     max_bytes = max_kb * 1024
 

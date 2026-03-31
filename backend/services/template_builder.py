@@ -64,11 +64,15 @@ def build_email_html(slices: List[dict]) -> str:
 
 
 def _normalize_url(url: str) -> str:
-    """Ensure URL has a protocol. Handles youtube.com, www.example.com, etc."""
+    """Ensure URL has a safe protocol. Blocks javascript: and data: schemes."""
     if not url:
         return '#'
     url = url.strip()
     if not url or url == '#':
+        return '#'
+    # Block dangerous schemes
+    lower = url.lower().lstrip()
+    if lower.startswith(('javascript:', 'data:', 'vbscript:')):
         return '#'
     if url.startswith(('http://', 'https://', 'mailto:', '//')):
         return url

@@ -1,0 +1,35 @@
+.git
+.gitignore
+.dockerignore
+.vscode
+.idea
+
+# Plugin source (not needed in backend image)
+plugin/src
+plugin/node_modules
+plugin/tsconfig.json
+plugin/build-ui.js
+
+# Python
+__pycache__
+*.pyc
+.venv
+venv
+
+# Docs & scripts
+README.md
+INSTALL.md
+setup.sh
+setup.bat
+windows.bat
+
+# Environment
+*.env
+*.env.local
+backend/.env
+backend/brands.json
+
+# OS
+.DS_Store
+Thumbs.db
+*.log

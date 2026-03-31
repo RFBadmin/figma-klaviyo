@@ -5,7 +5,7 @@ import { BrandKeyManager } from './BrandKeyManager';
 import type { Slice, KlaviyoCampaignConfig } from '../types';
 import type { FrameInfo } from '../ui';
 
-const BACKEND_URL = 'https://figma-klaviyo-production.up.railway.app';
+import { BACKEND_URL } from '../config';
 
 type Step = 'key_setup' | 'configure' | 'pushing' | 'done';
 

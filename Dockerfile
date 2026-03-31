@@ -7,6 +7,9 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends nodejs && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Non-root user for security
+RUN useradd --create-home --shell /bin/bash appuser
+
 WORKDIR /app
 
 COPY backend/requirements.txt backend/package.json ./
@@ -14,6 +17,9 @@ RUN pip install --no-cache-dir -r requirements.txt && \
     npm install --omit=dev
 
 COPY backend/ .
+
+RUN chown -R appuser:appuser /app
+USER appuser
 
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8080

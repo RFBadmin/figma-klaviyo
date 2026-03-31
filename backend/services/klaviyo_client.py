@@ -2,6 +2,9 @@ import time
 import requests
 from typing import List, Optional
 
+# Default timeout for all Klaviyo API calls (seconds)
+REQUEST_TIMEOUT = 60
+
 
 class KlaviyoClient:
     BASE_URL = "https://a.klaviyo.com/api"
@@ -37,7 +40,7 @@ class KlaviyoClient:
 
         for attempt in range(3):
             try:
-                response = requests.post(url, headers=upload_headers, files=files, timeout=60)
+                response = requests.post(url, headers=upload_headers, files=files, timeout=REQUEST_TIMEOUT)
                 # 5xx = transient server error — retry
                 if response.status_code >= 500 and attempt < 2:
                     time.sleep(2 ** attempt * 2)   # 2s then 4s
@@ -68,7 +71,7 @@ class KlaviyoClient:
             }
         }
 
-        response = requests.post(url, headers=self.headers, json=payload)
+        response = requests.post(url, headers=self.headers, json=payload, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
         return response.json()
 
@@ -127,7 +130,7 @@ class KlaviyoClient:
             }
         }
 
-        response = requests.post(url, headers=self.headers, json=payload)
+        response = requests.post(url, headers=self.headers, json=payload, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
         campaign_data = response.json()
 
@@ -153,7 +156,7 @@ class KlaviyoClient:
             }
         }
 
-        response = requests.post(url, headers=self.headers, json=payload)
+        response = requests.post(url, headers=self.headers, json=payload, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
 
     # ─── Lists ────────────────────────────────────────────────────────────────
@@ -161,7 +164,7 @@ class KlaviyoClient:
     def get_lists(self) -> List[dict]:
         """Fetch all available lists."""
         url = f"{self.BASE_URL}/lists/"
-        response = requests.get(url, headers=self.headers)
+        response = requests.get(url, headers=self.headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
 
         data = response.json()

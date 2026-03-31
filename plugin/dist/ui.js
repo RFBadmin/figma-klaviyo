@@ -646,8 +646,10 @@
     return Math.round(total);
   }
 
-  // src/components/DesignerMode.tsx
+  // src/config.ts
   var BACKEND_URL = "https://figma-klaviyo-production.up.railway.app";
+
+  // src/components/DesignerMode.tsx
   var defaultState = () => ({
     step: "select",
     slices: [],
@@ -1605,7 +1607,6 @@
   }
 
   // src/components/BrandKeyManager.tsx
-  var BACKEND_URL2 = "https://figma-klaviyo-production.up.railway.app";
   function BrandKeyManager({ onSelect }) {
     const [brands, setBrands] = d2([]);
     const [search, setSearch] = d2("");
@@ -1627,7 +1628,7 @@
       setLoading(true);
       setError(null);
       try {
-        const res = yield fetch(`${BACKEND_URL2}/api/brands`);
+        const res = yield fetch(`${BACKEND_URL}/api/brands`);
         if (!res.ok) throw new Error(`Server error: ${res.status}`);
         const data = yield res.json();
         setBrands((_a = data.brands) != null ? _a : []);
@@ -1647,7 +1648,7 @@
       setSelectingBrand(name);
       setSelectError(null);
       try {
-        const res = yield fetch(`${BACKEND_URL2}/api/brands/${encodeURIComponent(name)}/key`);
+        const res = yield fetch(`${BACKEND_URL}/api/brands/${encodeURIComponent(name)}/key`);
         if (!res.ok) throw new Error(`Failed to retrieve key for "${name}"`);
         const data = yield res.json();
         onSelect(name, data.apiKey);
@@ -1659,7 +1660,7 @@
     const handleDelete = (name) => __async(null, null, function* () {
       if (!confirm(`Delete brand "${name}"?`)) return;
       try {
-        const res = yield fetch(`${BACKEND_URL2}/api/brands/${encodeURIComponent(name)}`, {
+        const res = yield fetch(`${BACKEND_URL}/api/brands/${encodeURIComponent(name)}`, {
           method: "DELETE"
         });
         if (!res.ok) throw new Error("Delete failed");
@@ -1696,7 +1697,7 @@
         const body = { name: editName.trim() };
         if (editKey.trim()) body.apiKey = editKey.trim();
         const res = yield fetch(
-          `${BACKEND_URL2}/api/brands/${encodeURIComponent(editingBrand)}`,
+          `${BACKEND_URL}/api/brands/${encodeURIComponent(editingBrand)}`,
           {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -1731,7 +1732,7 @@
       setAdding(true);
       setAddError(null);
       try {
-        const res = yield fetch(`${BACKEND_URL2}/api/brands`, {
+        const res = yield fetch(`${BACKEND_URL}/api/brands`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: newName.trim(), apiKey: newKey.trim() })
@@ -1867,7 +1868,6 @@
   }
 
   // src/components/TechMode.tsx
-  var BACKEND_URL3 = "https://figma-klaviyo-production.up.railway.app";
   function generateId2() {
     return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
   }
@@ -1913,7 +1913,7 @@
       setConnecting(true);
       setConnectError(null);
       try {
-        const res = yield fetch(`${BACKEND_URL3}/api/klaviyo/lists`, {
+        const res = yield fetch(`${BACKEND_URL}/api/klaviyo/lists`, {
           headers: { "X-Klaviyo-Key": apiKey }
         });
         if (!res.ok) throw new Error("Invalid API key or Klaviyo error. Check the key and try again.");
@@ -1945,7 +1945,7 @@
             }
           }
         }
-        const res = yield fetch(`${BACKEND_URL3}/api/klaviyo/preview`, {
+        const res = yield fetch(`${BACKEND_URL}/api/klaviyo/preview`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ slices: enrichedSlices })
@@ -1976,7 +1976,7 @@
             templateName: isMultiFrame ? `${klaviyoConfig.templateName} \u2014 ${f4.name}` : klaviyoConfig.templateName,
             campaignName: isMultiFrame ? `${klaviyoConfig.campaignName} \u2014 ${f4.name}` : klaviyoConfig.campaignName
           });
-          const res = yield fetch(`${BACKEND_URL3}/api/klaviyo/push`, {
+          const res = yield fetch(`${BACKEND_URL}/api/klaviyo/push`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -2112,7 +2112,7 @@ ${JSON.stringify(errData.detail, null, 2)}` : "";
             KlaviyoConfig,
             {
               apiKey: klaviyoKey,
-              backendUrl: BACKEND_URL3,
+              backendUrl: BACKEND_URL,
               defaultTemplateName: readyFrames.length === 1 ? readyFrames[0].name : "",
               onChange: setKlaviyoConfig
             }

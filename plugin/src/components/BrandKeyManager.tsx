@@ -1,7 +1,7 @@
 import { h } from 'preact';
 import { useState, useEffect } from 'preact/hooks';
 
-const BACKEND_URL = 'https://figma-klaviyo-production.up.railway.app';
+import { BACKEND_URL } from '../config';
 
 interface Props {
   onSelect: (brandName: string, apiKey: string) => void;
