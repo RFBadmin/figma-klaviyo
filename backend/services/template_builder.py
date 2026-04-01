@@ -51,17 +51,26 @@ def build_email_html(slices: List[dict]) -> str:
           </td>
         </tr>"""
         else:
-            # Vertical split: compute each cell's pixel width proportionally
-            # Derive frame width from the rightmost x_end, defaulting to EMAIL_WIDTH
+            # Vertical split: nested table approach (email-safe, no Klaviyo per-cell padding).
+            # One data-klaviyo-region wraps the whole row so Klaviyo doesn't add spacing between cells.
             frame_width = max((s.get('x_end') or EMAIL_WIDTH) for s in row) or EMAIL_WIDTH
-            # Sort left to right
             row_sorted = sorted(row, key=lambda s: s.get('x_start') or 0)
 
-            cells = ""
-            for slice_item in row_sorted:
+            # Compute pixel widths; ensure they sum exactly to EMAIL_WIDTH by adjusting the last cell
+            widths = []
+            total = 0
+            for i, slice_item in enumerate(row_sorted):
                 x_start = slice_item.get('x_start') or 0
                 x_end = slice_item.get('x_end') or frame_width
-                cell_width = round(EMAIL_WIDTH * (x_end - x_start) / frame_width)
+                if i == len(row_sorted) - 1:
+                    widths.append(EMAIL_WIDTH - total)
+                else:
+                    w = round(EMAIL_WIDTH * (x_end - x_start) / frame_width)
+                    widths.append(w)
+                    total += w
+
+            inner_cells = ""
+            for slice_item, cell_width in zip(row_sorted, widths):
                 link = _normalize_url(slice_item.get('link') or '#')
                 alt_text = slice_item.get('alt_text') or slice_item.get('name', '')
                 image_url = (
@@ -69,23 +78,15 @@ def build_email_html(slices: List[dict]) -> str:
                     or slice_item.get('compressed_url')
                     or (f"data:image/png;base64,{slice_item['image_base64']}" if slice_item.get('image_base64') else '')
                 )
-                cells += f"""
-            <td align="center" data-klaviyo-region="true" data-klaviyo-region-width-pixels="{cell_width}" style="padding: 0; width: {cell_width}px;">
-              <div class="klaviyo-block klaviyo-image-block">
-                <a href="{link}" target="_blank" style="display: block;">
-                  <img
-                    src="{image_url}"
-                    alt="{_escape_html(alt_text)}"
-                    width="{cell_width}"
-                    class="slice-img"
-                    style="display: block; width: 100%; max-width: {cell_width}px; height: auto; border: 0;"
-                  />
-                </a>
-              </div>
-            </td>"""
+                inner_cells += f"""
+              <td style="padding: 0; vertical-align: top;" width="{cell_width}"><a href="{link}" target="_blank" style="display: block; text-decoration: none;"><img src="{image_url}" alt="{_escape_html(alt_text)}" width="{cell_width}" style="display: block; border: 0;" /></a></td>"""
 
             slice_rows += f"""
-        <tr>{cells}
+        <tr>
+          <td data-klaviyo-region="true" data-klaviyo-region-width-pixels="{EMAIL_WIDTH}" style="padding: 0; font-size: 0; line-height: 0;">
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="{EMAIL_WIDTH}">{inner_cells}
+            </table>
+          </td>
         </tr>"""
 
     html = f"""<!DOCTYPE html>
