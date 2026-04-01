@@ -5,6 +5,8 @@ export interface Slice {
   name: string;
   y_start: number;
   y_end: number;
+  x_start?: number;  // optional — undefined means 0 (full width from left)
+  x_end?: number;    // optional — undefined means frameWidth (full width to right)
   alt_text: string;
   compressed_url?: string;
   klaviyo_url?: string;
@@ -140,8 +142,8 @@ export type PluginMessage =
   | { type: 'EXPORT_COMPLETE'; data: SliceExport[] }
   | { type: 'FRAME_EXPORTED'; data: string; _reqId?: string }
   | { type: 'FRAME_LAYOUT'; bands: LayoutBand[]; frameHeight: number; _reqId?: string }
-  | { type: 'FIGMA_SLICES_LOADED'; slices: Array<{ name: string; y_start: number; y_end: number; imageBase64: string }>; _reqId?: string }
-  | { type: 'SLICE_NODES_CREATED'; slices: Array<{ name: string; y_start: number; y_end: number; imageBase64: string }>; _reqId?: string }
+  | { type: 'FIGMA_SLICES_LOADED'; slices: Array<{ name: string; y_start: number; y_end: number; x_start: number; x_end: number; imageBase64: string }>; _reqId?: string }
+  | { type: 'SLICE_NODES_CREATED'; slices: Array<{ name: string; y_start: number; y_end: number; x_start: number; x_end: number; imageBase64: string }>; _reqId?: string }
   | { type: 'USER_INFO'; name: string }
   | { type: 'KLAVIYO_KEY_LOADED'; key: string | null }
   | { type: 'KLAVIYO_KEY_SAVED' }
@@ -160,5 +162,5 @@ export type UIMessage =
   | { type: 'GET_KLAVIYO_KEY' }
   | { type: 'GET_USER_INFO' }
   | { type: 'GET_FIGMA_SLICES'; frameId: string; _reqId?: string }
-  | { type: 'CREATE_SLICE_NODES'; frameId: string; slices: Array<{ name: string; y_start: number; y_end: number }>; _reqId?: string }
+  | { type: 'CREATE_SLICE_NODES'; frameId: string; slices: Array<{ name: string; y_start: number; y_end: number; x_start?: number; x_end?: number }>; _reqId?: string }
   | { type: 'CLOSE_PLUGIN' };

@@ -451,21 +451,20 @@
 
   // src/components/SlicePreview.tsx
   var PREVIEW_WIDTH = 280;
-  function SlicePreview({ slices, frameHeight, imageBase64, onSlicesChange, onReanalyze }) {
+  function generateId() {
+    return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+  }
+  function SlicePreview({ slices, frameHeight, frameWidth, imageBase64, onSlicesChange, onReanalyze }) {
     const [dragging, setDragging] = d2(null);
+    const [draggingX, setDraggingX] = d2(null);
     const [editingId, setEditingId] = d2(null);
-    const scale = PREVIEW_WIDTH / 600;
+    const scale = PREVIEW_WIDTH / (frameWidth || 600);
     const previewHeight = Math.round(frameHeight * scale);
     const handleDragStart = q2((e3, index) => {
       e3.preventDefault();
-      setDragging({
-        index,
-        startY: e3.clientY,
-        startEnd: slices[index].y_end
-      });
+      setDragging({ index, startY: e3.clientY, startEnd: slices[index].y_end });
       const onMove = (ev) => {
         const dy = ev.clientY - e3.clientY;
-        const rawY = Math.round(e3.clientY + dy);
         const newEnd = Math.round(slices[index].y_end + dy / scale);
         const clamped = Math.max(slices[index].y_start + 20, Math.min(
           index < slices.length - 1 ? slices[index + 1].y_end - 20 : frameHeight,
@@ -486,15 +485,46 @@
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
     }, [slices, frameHeight, scale, onSlicesChange]);
+    const handleXDragStart = q2((e3, leftIdx, rightIdx) => {
+      var _a;
+      e3.preventDefault();
+      const leftSlice = slices[leftIdx];
+      setDraggingX({ leftIdx, rightIdx, startX: e3.clientX, startXEnd: (_a = leftSlice.x_end) != null ? _a : frameWidth });
+      const onMove = (ev) => {
+        var _a2, _b, _c;
+        const dx = ev.clientX - e3.clientX;
+        const leftSlice2 = slices[leftIdx];
+        const rightSlice = slices[rightIdx];
+        const newXEnd = Math.round(((_a2 = leftSlice2.x_end) != null ? _a2 : frameWidth) + dx / scale);
+        const minX = ((_b = leftSlice2.x_start) != null ? _b : 0) + 30;
+        const maxX = ((_c = rightSlice.x_end) != null ? _c : frameWidth) - 30;
+        const clamped = Math.max(minX, Math.min(maxX, newXEnd));
+        const updated = slices.map((s3, i3) => {
+          if (i3 === leftIdx) return __spreadProps(__spreadValues({}, s3), { x_end: clamped });
+          if (i3 === rightIdx) return __spreadProps(__spreadValues({}, s3), { x_start: clamped });
+          return s3;
+        });
+        onSlicesChange(updated);
+      };
+      const onUp = () => {
+        setDraggingX(null);
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    }, [slices, frameWidth, scale, onSlicesChange]);
     const handleSplitSlice = q2((index) => {
       const slice = slices[index];
       if (slice.y_end - slice.y_start < 40) return;
       const midY = Math.round((slice.y_start + slice.y_end) / 2);
       const newSlice = {
-        id: `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`,
+        id: generateId(),
         name: `section_${slices.length + 1}`,
         y_start: midY,
         y_end: slice.y_end,
+        x_start: slice.x_start,
+        x_end: slice.x_end,
         alt_text: "New section"
       };
       const updated = [
@@ -505,14 +535,34 @@
       ];
       onSlicesChange(updated);
     }, [slices, onSlicesChange]);
+    const handleVSplitSlice = q2((index) => {
+      var _a, _b;
+      const slice = slices[index];
+      const xStart = (_a = slice.x_start) != null ? _a : 0;
+      const xEnd = (_b = slice.x_end) != null ? _b : frameWidth;
+      if (xEnd - xStart < 60) return;
+      const midX = Math.round((xStart + xEnd) / 2);
+      const left = __spreadProps(__spreadValues({}, slice), { id: generateId(), name: `${slice.name}_L`, x_start: xStart, x_end: midX });
+      const right = __spreadProps(__spreadValues({}, slice), { id: generateId(), name: `${slice.name}_R`, x_start: midX, x_end: xEnd });
+      const updated = [...slices.slice(0, index), left, right, ...slices.slice(index + 1)];
+      onSlicesChange(updated);
+    }, [slices, frameWidth, onSlicesChange]);
     const handleDelete = q2((id) => {
       const idx = slices.findIndex((s3) => s3.id === id);
       if (idx === -1 || slices.length <= 1) return;
+      const slice = slices[idx];
       const updated = slices.filter((_2, i3) => i3 !== idx);
-      if (idx > 0) {
-        updated[idx - 1] = __spreadProps(__spreadValues({}, updated[idx - 1]), { y_end: slices[idx].y_end });
-      } else {
-        updated[0] = __spreadProps(__spreadValues({}, updated[0]), { y_start: slices[idx].y_start });
+      const sameRow = updated.filter((s3) => s3.y_start === slice.y_start && s3.y_end === slice.y_end);
+      if (sameRow.length === 1) {
+        const siblingIdx = updated.findIndex((s3) => s3.id === sameRow[0].id);
+        updated[siblingIdx] = __spreadProps(__spreadValues({}, updated[siblingIdx]), { x_start: void 0, x_end: void 0 });
+      }
+      if (sameRow.length === 0) {
+        if (idx > 0) {
+          updated[idx - 1] = __spreadProps(__spreadValues({}, updated[idx - 1]), { y_end: slice.y_end });
+        } else if (updated.length > 0) {
+          updated[0] = __spreadProps(__spreadValues({}, updated[0]), { y_start: slice.y_start });
+        }
       }
       onSlicesChange(updated);
     }, [slices, onSlicesChange]);
@@ -528,7 +578,7 @@
         ] }),
         /* @__PURE__ */ u3("span", { children: [
           "Est. Size: ~",
-          estimateSize(slices, frameHeight),
+          estimateSize(slices, frameHeight, frameWidth),
           " KB"
         ] })
       ] }),
@@ -546,20 +596,38 @@
               }
             ),
             slices.map((slice, i3) => {
+              var _a, _b, _c;
               const top = Math.round(slice.y_start * scale);
               const height = Math.round((slice.y_end - slice.y_start) * scale);
+              const left = Math.round(((_a = slice.x_start) != null ? _a : 0) * scale);
+              const width = Math.round((((_b = slice.x_end) != null ? _b : frameWidth) - ((_c = slice.x_start) != null ? _c : 0)) * scale);
+              const nextSlice = slices[i3 + 1];
+              const hasXSibling = nextSlice && nextSlice.y_start === slice.y_start && nextSlice.y_end === slice.y_end;
+              const isLastInRow = !hasXSibling;
+              const rowEnd = slice.y_end;
+              const nextIsNewRow = nextSlice && nextSlice.y_start !== slice.y_start;
+              const showYHandle = isLastInRow && nextSlice && nextIsNewRow;
               return /* @__PURE__ */ u3(
                 "div",
                 {
-                  style: { position: "absolute", top, left: 0, width: "100%", height, borderBottom: "2px dashed #0099ff", boxSizing: "border-box" },
+                  style: {
+                    position: "absolute",
+                    top,
+                    left,
+                    width,
+                    height,
+                    borderBottom: "2px dashed #0099ff",
+                    borderRight: hasXSibling ? "2px dashed #ff9900" : void 0,
+                    boxSizing: "border-box"
+                  },
                   children: [
-                    /* @__PURE__ */ u3("div", { style: { position: "absolute", top: 2, left: 4, fontSize: 10, color: "#333", display: "flex", alignItems: "center", gap: 4 }, children: [
+                    /* @__PURE__ */ u3("div", { style: { position: "absolute", top: 2, left: 4, fontSize: 10, color: "#333", display: "flex", alignItems: "center", gap: 4, zIndex: 6 }, children: [
                       editingId === slice.id ? /* @__PURE__ */ u3(
                         "input",
                         {
                           autoFocus: true,
                           defaultValue: slice.name,
-                          style: { fontSize: 10, border: "1px solid #0099ff", padding: "1px 2px", width: 80 },
+                          style: { fontSize: 10, border: "1px solid #0099ff", padding: "1px 2px", width: 70 },
                           onBlur: (e3) => handleRename(slice.id, e3.target.value),
                           onKeyDown: (e3) => {
                             if (e3.key === "Enter") handleRename(slice.id, e3.target.value);
@@ -576,39 +644,63 @@
                         }
                       )
                     ] }),
-                    /* @__PURE__ */ u3(
-                      "button",
-                      {
-                        onClick: (e3) => {
-                          e3.stopPropagation();
-                          handleSplitSlice(i3);
-                        },
-                        title: "Split this slice",
-                        style: {
-                          position: "absolute",
-                          right: 2,
-                          top: "50%",
-                          transform: "translateY(-50%)",
-                          width: 16,
-                          height: 16,
-                          borderRadius: "50%",
-                          background: "#0099ff",
-                          color: "#fff",
-                          border: "none",
-                          fontSize: 14,
-                          lineHeight: "16px",
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          opacity: 0.8,
-                          zIndex: 5,
-                          padding: 0
-                        },
-                        children: "+"
-                      }
-                    ),
-                    i3 < slices.length - 1 && /* @__PURE__ */ u3(
+                    /* @__PURE__ */ u3("div", { style: { position: "absolute", right: hasXSibling ? 6 : 2, top: "50%", transform: "translateY(-50%)", display: "flex", flexDirection: "column", gap: 2, zIndex: 5 }, children: [
+                      /* @__PURE__ */ u3(
+                        "button",
+                        {
+                          onClick: (e3) => {
+                            e3.stopPropagation();
+                            handleSplitSlice(i3);
+                          },
+                          title: "Split horizontally (top/bottom)",
+                          style: {
+                            width: 16,
+                            height: 16,
+                            borderRadius: "50%",
+                            background: "#0099ff",
+                            color: "#fff",
+                            border: "none",
+                            fontSize: 12,
+                            lineHeight: "16px",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            opacity: 0.85,
+                            padding: 0
+                          },
+                          children: "+"
+                        }
+                      ),
+                      /* @__PURE__ */ u3(
+                        "button",
+                        {
+                          onClick: (e3) => {
+                            e3.stopPropagation();
+                            handleVSplitSlice(i3);
+                          },
+                          title: "Split vertically (left/right)",
+                          style: {
+                            width: 16,
+                            height: 16,
+                            borderRadius: "50%",
+                            background: "#ff9900",
+                            color: "#fff",
+                            border: "none",
+                            fontSize: 11,
+                            lineHeight: "16px",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            opacity: 0.85,
+                            padding: 0
+                          },
+                          children: "|"
+                        }
+                      )
+                    ] }),
+                    showYHandle && /* @__PURE__ */ u3(
                       "div",
                       {
                         style: {
@@ -626,6 +718,25 @@
                         onMouseDown: (e3) => handleDragStart(e3, i3),
                         children: /* @__PURE__ */ u3("div", { style: { width: 24, height: 4, background: "#0099ff", borderRadius: 2 } })
                       }
+                    ),
+                    hasXSibling && /* @__PURE__ */ u3(
+                      "div",
+                      {
+                        style: {
+                          position: "absolute",
+                          right: -4,
+                          top: 0,
+                          bottom: 0,
+                          width: 8,
+                          cursor: "ew-resize",
+                          zIndex: 10,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center"
+                        },
+                        onMouseDown: (e3) => handleXDragStart(e3, i3, i3 + 1),
+                        children: /* @__PURE__ */ u3("div", { style: { width: 4, height: 24, background: "#ff9900", borderRadius: 2 } })
+                      }
                     )
                   ]
                 },
@@ -635,14 +746,20 @@
           ]
         }
       ),
-      /* @__PURE__ */ u3("div", { class: "slice-hint", children: "Click + on any slice to split it \u2022 Drag blue handles to adjust \u2022 Double-click label to rename" }),
+      /* @__PURE__ */ u3("div", { class: "slice-hint", children: "+ splits top/bottom \xB7 | splits left/right \xB7 Drag handles to adjust \xB7 Dbl-click to rename" }),
       /* @__PURE__ */ u3("div", { class: "preview-actions", children: /* @__PURE__ */ u3("button", { onClick: onReanalyze, children: "\u21BB Re-analyze" }) })
     ] });
   }
-  function estimateSize(slices, frameHeight) {
-    if (frameHeight <= 0) return slices.length * 90;
-    const KB_PER_PX = 180 / frameHeight;
-    const total = slices.reduce((sum, s3) => sum + (s3.y_end - s3.y_start) * KB_PER_PX, 0);
+  function estimateSize(slices, frameHeight, frameWidth) {
+    if (frameHeight <= 0 || frameWidth <= 0) return slices.length * 90;
+    const totalPx = frameWidth * frameHeight;
+    const KB_PER_PX = 180 / totalPx;
+    const total = slices.reduce((sum, s3) => {
+      var _a, _b;
+      const w3 = ((_a = s3.x_end) != null ? _a : frameWidth) - ((_b = s3.x_start) != null ? _b : 0);
+      const h4 = s3.y_end - s3.y_start;
+      return sum + w3 * h4 * KB_PER_PX;
+    }, 0);
     return Math.round(total);
   }
 
@@ -750,10 +867,12 @@
         }
         if (figmaSlices.length > 0) {
           const newSlices = figmaSlices.map((s3) => ({
-            id: generateId(),
+            id: generateId2(),
             name: s3.name,
             y_start: s3.y_start,
             y_end: s3.y_end,
+            x_start: s3.x_start,
+            x_end: s3.x_end,
             alt_text: s3.name
           }));
           const imgMap = /* @__PURE__ */ new Map();
@@ -793,7 +912,7 @@
         if (!response.ok) throw new Error(`Slicing failed: ${response.statusText}`);
         const data = yield response.json();
         const newSlices = data.slices.map((s3) => ({
-          id: generateId(),
+          id: generateId2(),
           name: s3.name,
           y_start: s3.y_start,
           y_end: s3.y_end,
@@ -1217,6 +1336,7 @@
           {
             slices,
             frameHeight: frame.height,
+            frameWidth: frame.width,
             imageBase64,
             onSlicesChange,
             onReanalyze: onReSlice
@@ -1294,12 +1414,12 @@
   function capitalize(s3) {
     return s3.charAt(0).toUpperCase() + s3.slice(1);
   }
-  function generateId() {
+  function generateId2() {
     return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
   }
   function exportFullFrame(frameId) {
     return __async(this, null, function* () {
-      const reqId = generateId();
+      const reqId = generateId2();
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
           window.removeEventListener("message", handler);
@@ -1320,7 +1440,7 @@
     });
   }
   function requestFrameLayout(frameId) {
-    const reqId = generateId();
+    const reqId = generateId2();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         window.removeEventListener("message", handler);
@@ -1340,7 +1460,7 @@
     });
   }
   function requestFigmaSlices(frameId) {
-    const reqId = generateId();
+    const reqId = generateId2();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         window.removeEventListener("message", handler);
@@ -1360,7 +1480,7 @@
     });
   }
   function createSliceNodes(frameId, slices) {
-    const reqId = generateId();
+    const reqId = generateId2();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         window.removeEventListener("message", handler);
@@ -1380,7 +1500,7 @@
         pluginMessage: {
           type: "CREATE_SLICE_NODES",
           frameId,
-          slices: slices.map((s3) => ({ name: s3.name, y_start: s3.y_start, y_end: s3.y_end })),
+          slices: slices.map((s3) => ({ name: s3.name, y_start: s3.y_start, y_end: s3.y_end, x_start: s3.x_start, x_end: s3.x_end })),
           _reqId: reqId
         }
       }, "*");
@@ -1391,28 +1511,23 @@
       return new Promise((resolve, reject) => {
         const img = new Image();
         img.onload = () => {
+          var _a, _b, _c;
           const scale = img.naturalWidth / frameWidth;
           const results = [];
           for (const slice of slices) {
+            const srcX = Math.round(((_a = slice.x_start) != null ? _a : 0) * scale);
+            const srcY = Math.round(slice.y_start * scale);
+            const srcW = Math.round((((_b = slice.x_end) != null ? _b : frameWidth) - ((_c = slice.x_start) != null ? _c : 0)) * scale);
+            const srcH = Math.round((slice.y_end - slice.y_start) * scale);
             const canvas = document.createElement("canvas");
-            canvas.width = img.naturalWidth;
-            canvas.height = Math.round((slice.y_end - slice.y_start) * scale);
+            canvas.width = srcW;
+            canvas.height = srcH;
             const ctx = canvas.getContext("2d");
             if (!ctx) {
               reject(new Error("Canvas 2D context unavailable"));
               return;
             }
-            ctx.drawImage(
-              img,
-              0,
-              Math.round(slice.y_start * scale),
-              img.naturalWidth,
-              canvas.height,
-              0,
-              0,
-              canvas.width,
-              canvas.height
-            );
+            ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH);
             results.push({
               id: slice.id,
               name: slice.name,
@@ -1873,7 +1988,7 @@
   }
 
   // src/components/TechMode.tsx
-  function generateId2() {
+  function generateId3() {
     return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
   }
   function TechMode({ frames }) {
@@ -2185,7 +2300,7 @@ ${JSON.stringify(errData.detail, null, 2)}` : "";
     ] });
   }
   function fetchFigmaSliceImages(frameId) {
-    const reqId = generateId2();
+    const reqId = generateId3();
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         window.removeEventListener("message", handler);

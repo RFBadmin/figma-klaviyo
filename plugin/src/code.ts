@@ -149,7 +149,7 @@ figma.ui.onmessage = async (msg: UIMessage) => {
         if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
         const bytes = await frameNode.exportAsync({
           format: 'PNG',
-          constraint: { type: 'SCALE', value: 2 }
+          constraint: { type: 'SCALE', value: 1 }
         });
         figma.ui.postMessage({ type: 'FRAME_EXPORTED', data: uint8ArrayToBase64(bytes), _reqId: reqId });
         break;
@@ -169,6 +169,7 @@ figma.ui.onmessage = async (msg: UIMessage) => {
         if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
 
         const frameAbsY = frameNode.absoluteBoundingBox?.y ?? 0;
+        const frameAbsX = frameNode.absoluteBoundingBox?.x ?? 0;
         // Search recursively — slice nodes may be inside groups
         const sliceNodes = findSliceNodesRecursive(frameNode);
 
@@ -177,19 +178,22 @@ figma.ui.onmessage = async (msg: UIMessage) => {
           break;
         }
 
-        const figmaSlices: Array<{ name: string; y_start: number; y_end: number; imageBase64: string }> = [];
-        for (let i = 0; i < sliceNodes.length; i++) {
-          const node = sliceNodes[i];
-          const bbox = node.absoluteBoundingBox;
-          if (!bbox) continue;
-          const y_start = Math.max(0, Math.round(bbox.y - frameAbsY));
-          const y_end = Math.min(frameNode.height, Math.round(bbox.y - frameAbsY + bbox.height));
-          if (y_end <= y_start) continue;
-          const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: 2 } });
-          figmaSlices.push({ name: node.name || `slice_${i + 1}`, y_start, y_end, imageBase64: uint8ArrayToBase64(bytes) });
-        }
-
-        figmaSlices.sort((a, b) => a.y_start - b.y_start);
+        // Parallel export at 1× (avoids sequential blocking of the plugin bridge)
+        const figmaSlicesRaw = await Promise.all(
+          sliceNodes.map(async (node, i) => {
+            const bbox = node.absoluteBoundingBox;
+            if (!bbox) return null;
+            const y_start = Math.max(0, Math.round(bbox.y - frameAbsY));
+            const y_end = Math.min(frameNode.height, Math.round(bbox.y - frameAbsY + bbox.height));
+            if (y_end <= y_start) return null;
+            const x_start = Math.max(0, Math.round(bbox.x - frameAbsX));
+            const x_end = Math.min(frameNode.width, Math.round(bbox.x - frameAbsX + bbox.width));
+            const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: 1 } });
+            return { name: node.name || `slice_${i + 1}`, y_start, y_end, x_start, x_end, imageBase64: uint8ArrayToBase64(bytes) };
+          })
+        );
+        const figmaSlices = figmaSlicesRaw.filter((s): s is NonNullable<typeof s> => s !== null);
+        figmaSlices.sort((a, b) => a.y_start - b.y_start || a.x_start - b.x_start);
         figma.ui.postMessage({ type: 'FIGMA_SLICES_LOADED', slices: figmaSlices, _reqId: reqId });
         break;
       }
@@ -202,29 +206,37 @@ figma.ui.onmessage = async (msg: UIMessage) => {
         const existingSlices = findSliceNodesRecursive(frameNode);
         for (const node of existingSlices) node.remove();
 
-        // Create a SliceNode for each slice
+        // Create a SliceNode for each slice (x coords supported for vertical splits)
         for (const slice of msg.slices) {
           const sliceNode = figma.createSlice();
           frameNode.appendChild(sliceNode);
-          sliceNode.x = 0;
+          sliceNode.x = slice.x_start ?? 0;
           sliceNode.y = slice.y_start;
-          sliceNode.resize(frameNode.width, slice.y_end - slice.y_start);
+          sliceNode.resize(
+            (slice.x_end ?? frameNode.width) - (slice.x_start ?? 0),
+            slice.y_end - slice.y_start
+          );
           sliceNode.name = slice.name;
         }
 
-        // Export each created slice
+        // Parallel export at 1× (avoids sequential blocking of the plugin bridge)
         const createdNodes = (frameNode.children as SceneNode[])
           .filter(n => n.type === 'SLICE') as SliceNode[];
         const absY = frameNode.absoluteBoundingBox?.y ?? 0;
-        const exportedSlices: Array<{ name: string; y_start: number; y_end: number; imageBase64: string }> = [];
-        for (const node of createdNodes) {
-          const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: 2 } });
-          const bbox = node.absoluteBoundingBox;
-          if (!bbox) continue;
-          const y_start = Math.max(0, Math.round(bbox.y - absY));
-          const y_end = Math.min(frameNode.height, Math.round(bbox.y - absY + bbox.height));
-          exportedSlices.push({ name: node.name, y_start, y_end, imageBase64: uint8ArrayToBase64(bytes) });
-        }
+        const absX = frameNode.absoluteBoundingBox?.x ?? 0;
+        const exportedSlicesRaw = await Promise.all(
+          createdNodes.map(async (node) => {
+            const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: 1 } });
+            const bbox = node.absoluteBoundingBox;
+            if (!bbox) return null;
+            const y_start = Math.max(0, Math.round(bbox.y - absY));
+            const y_end = Math.min(frameNode.height, Math.round(bbox.y - absY + bbox.height));
+            const x_start = Math.max(0, Math.round(bbox.x - absX));
+            const x_end = Math.min(frameNode.width, Math.round(bbox.x - absX + bbox.width));
+            return { name: node.name, y_start, y_end, x_start, x_end, imageBase64: uint8ArrayToBase64(bytes) };
+          })
+        );
+        const exportedSlices = exportedSlicesRaw.filter((s): s is NonNullable<typeof s> => s !== null);
 
         figma.ui.postMessage({ type: 'SLICE_NODES_CREATED', slices: exportedSlices, _reqId: reqId });
         break;

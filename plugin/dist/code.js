@@ -188,7 +188,7 @@
         }, 400);
       });
       figma.ui.onmessage = (msg) => __async(null, null, function* () {
-        var _a, _b, _c, _d, _e, _f, _g, _h;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o;
         const reqId = msg._reqId;
         try {
           switch (msg.type) {
@@ -218,7 +218,7 @@
               if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
               const bytes = yield frameNode.exportAsync({
                 format: "PNG",
-                constraint: { type: "SCALE", value: 2 }
+                constraint: { type: "SCALE", value: 1 }
               });
               figma.ui.postMessage({ type: "FRAME_EXPORTED", data: uint8ArrayToBase64(bytes), _reqId: reqId });
               break;
@@ -235,23 +235,27 @@
               const frameNode = figma.getNodeById(msg.frameId);
               if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
               const frameAbsY = (_d = (_c = frameNode.absoluteBoundingBox) == null ? void 0 : _c.y) != null ? _d : 0;
+              const frameAbsX = (_f = (_e = frameNode.absoluteBoundingBox) == null ? void 0 : _e.x) != null ? _f : 0;
               const sliceNodes = findSliceNodesRecursive(frameNode);
               if (sliceNodes.length === 0) {
                 figma.ui.postMessage({ type: "FIGMA_SLICES_LOADED", slices: [], _reqId: reqId });
                 break;
               }
-              const figmaSlices = [];
-              for (let i = 0; i < sliceNodes.length; i++) {
-                const node = sliceNodes[i];
-                const bbox = node.absoluteBoundingBox;
-                if (!bbox) continue;
-                const y_start = Math.max(0, Math.round(bbox.y - frameAbsY));
-                const y_end = Math.min(frameNode.height, Math.round(bbox.y - frameAbsY + bbox.height));
-                if (y_end <= y_start) continue;
-                const bytes = yield node.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: 2 } });
-                figmaSlices.push({ name: node.name || `slice_${i + 1}`, y_start, y_end, imageBase64: uint8ArrayToBase64(bytes) });
-              }
-              figmaSlices.sort((a, b) => a.y_start - b.y_start);
+              const figmaSlicesRaw = yield Promise.all(
+                sliceNodes.map((node, i) => __async(null, null, function* () {
+                  const bbox = node.absoluteBoundingBox;
+                  if (!bbox) return null;
+                  const y_start = Math.max(0, Math.round(bbox.y - frameAbsY));
+                  const y_end = Math.min(frameNode.height, Math.round(bbox.y - frameAbsY + bbox.height));
+                  if (y_end <= y_start) return null;
+                  const x_start = Math.max(0, Math.round(bbox.x - frameAbsX));
+                  const x_end = Math.min(frameNode.width, Math.round(bbox.x - frameAbsX + bbox.width));
+                  const bytes = yield node.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: 1 } });
+                  return { name: node.name || `slice_${i + 1}`, y_start, y_end, x_start, x_end, imageBase64: uint8ArrayToBase64(bytes) };
+                }))
+              );
+              const figmaSlices = figmaSlicesRaw.filter((s) => s !== null);
+              figmaSlices.sort((a, b) => a.y_start - b.y_start || a.x_start - b.x_start);
               figma.ui.postMessage({ type: "FIGMA_SLICES_LOADED", slices: figmaSlices, _reqId: reqId });
               break;
             }
@@ -263,22 +267,30 @@
               for (const slice of msg.slices) {
                 const sliceNode = figma.createSlice();
                 frameNode.appendChild(sliceNode);
-                sliceNode.x = 0;
+                sliceNode.x = (_g = slice.x_start) != null ? _g : 0;
                 sliceNode.y = slice.y_start;
-                sliceNode.resize(frameNode.width, slice.y_end - slice.y_start);
+                sliceNode.resize(
+                  ((_h = slice.x_end) != null ? _h : frameNode.width) - ((_i = slice.x_start) != null ? _i : 0),
+                  slice.y_end - slice.y_start
+                );
                 sliceNode.name = slice.name;
               }
               const createdNodes = frameNode.children.filter((n) => n.type === "SLICE");
-              const absY = (_f = (_e = frameNode.absoluteBoundingBox) == null ? void 0 : _e.y) != null ? _f : 0;
-              const exportedSlices = [];
-              for (const node of createdNodes) {
-                const bytes = yield node.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: 2 } });
-                const bbox = node.absoluteBoundingBox;
-                if (!bbox) continue;
-                const y_start = Math.max(0, Math.round(bbox.y - absY));
-                const y_end = Math.min(frameNode.height, Math.round(bbox.y - absY + bbox.height));
-                exportedSlices.push({ name: node.name, y_start, y_end, imageBase64: uint8ArrayToBase64(bytes) });
-              }
+              const absY = (_k = (_j = frameNode.absoluteBoundingBox) == null ? void 0 : _j.y) != null ? _k : 0;
+              const absX = (_m = (_l = frameNode.absoluteBoundingBox) == null ? void 0 : _l.x) != null ? _m : 0;
+              const exportedSlicesRaw = yield Promise.all(
+                createdNodes.map((node) => __async(null, null, function* () {
+                  const bytes = yield node.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: 1 } });
+                  const bbox = node.absoluteBoundingBox;
+                  if (!bbox) return null;
+                  const y_start = Math.max(0, Math.round(bbox.y - absY));
+                  const y_end = Math.min(frameNode.height, Math.round(bbox.y - absY + bbox.height));
+                  const x_start = Math.max(0, Math.round(bbox.x - absX));
+                  const x_end = Math.min(frameNode.width, Math.round(bbox.x - absX + bbox.width));
+                  return { name: node.name, y_start, y_end, x_start, x_end, imageBase64: uint8ArrayToBase64(bytes) };
+                }))
+              );
+              const exportedSlices = exportedSlicesRaw.filter((s) => s !== null);
               figma.ui.postMessage({ type: "SLICE_NODES_CREATED", slices: exportedSlices, _reqId: reqId });
               break;
             }
@@ -299,7 +311,7 @@
             case "GET_USER_INFO": {
               figma.ui.postMessage({
                 type: "USER_INFO",
-                name: (_h = (_g = figma.currentUser) == null ? void 0 : _g.name) != null ? _h : "Unknown"
+                name: (_o = (_n = figma.currentUser) == null ? void 0 : _n.name) != null ? _o : "Unknown"
               });
               break;
             }

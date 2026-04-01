@@ -58,12 +58,12 @@ async function main() {
   for await (const chunk of process.stdin) chunks.push(chunk);
   const { slices, settings } = JSON.parse(Buffer.concat(chunks).toString());
 
-  const results = [];
-  for (const slice of slices) {
+  // Compress all slices in parallel — avoids N sequential awaits
+  const results = await Promise.all(slices.map(async (slice) => {
     const imageBuffer = Buffer.from(slice.image_base64, 'base64');
     const originalSize = imageBuffer.length;
     const result = await compressSlice(imageBuffer, settings);
-    results.push({
+    return {
       id: slice.id,
       name: slice.name,
       original_size: originalSize,
@@ -73,8 +73,8 @@ async function main() {
       final_quality: result.finalQuality ?? null,
       width: result.width,
       height: result.height,
-    });
-  }
+    };
+  }));
 
   process.stdout.write(JSON.stringify({ results }));
 }

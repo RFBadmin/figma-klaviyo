@@ -146,7 +146,7 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
 
     // ── Check for Figma native slices FIRST (no spinner needed — it's instant) ─
     if (!forceAI) {
-      let figmaSlices: Array<{ name: string; y_start: number; y_end: number; imageBase64: string }> = [];
+      let figmaSlices: Array<{ name: string; y_start: number; y_end: number; x_start: number; x_end: number; imageBase64: string }> = [];
       try {
         figmaSlices = await requestFigmaSlices(targetFrame.id);
       } catch {
@@ -159,6 +159,8 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
           name: s.name,
           y_start: s.y_start,
           y_end: s.y_end,
+          x_start: s.x_start,
+          x_end: s.x_end,
           alt_text: s.name
         }));
         // Build ID-keyed map for reliable lookup even after editing
@@ -637,6 +639,7 @@ function FrameWorkflow({ frame, state, fromFigmaSlices, onSlice, onReSlice, onSl
           <SlicePreview
             slices={slices}
             frameHeight={frame.height}
+            frameWidth={frame.width}
             imageBase64={imageBase64}
             onSlicesChange={onSlicesChange}
             onReanalyze={onReSlice}
@@ -771,7 +774,7 @@ function requestFrameLayout(frameId: string): Promise<LayoutBand[]> {
 }
 
 /** Read existing Figma SliceNodes from a frame and return their positions + exported images. */
-function requestFigmaSlices(frameId: string): Promise<Array<{ name: string; y_start: number; y_end: number; imageBase64: string }>> {
+function requestFigmaSlices(frameId: string): Promise<Array<{ name: string; y_start: number; y_end: number; x_start: number; x_end: number; imageBase64: string }>> {
   const reqId = generateId();
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -812,14 +815,14 @@ function createSliceNodes(frameId: string, slices: Slice[]): Promise<Array<{ nam
       pluginMessage: {
         type: 'CREATE_SLICE_NODES',
         frameId,
-        slices: slices.map(s => ({ name: s.name, y_start: s.y_start, y_end: s.y_end })),
+        slices: slices.map(s => ({ name: s.name, y_start: s.y_start, y_end: s.y_end, x_start: s.x_start, x_end: s.x_end })),
         _reqId: reqId
       }
     }, '*');
   });
 }
 
-/** Crop each slice region from the full-frame image using HTML Canvas (2× scale aware). */
+/** Crop each slice region from the full-frame image using HTML Canvas (scale aware, x/y coords). */
 async function cropSlicesFromImage(
   imageBase64: string,
   slices: Slice[],
@@ -831,17 +834,16 @@ async function cropSlicesFromImage(
       const scale = img.naturalWidth / frameWidth;
       const results: { id: string; name: string; image_base64: string }[] = [];
       for (const slice of slices) {
+        const srcX = Math.round((slice.x_start ?? 0) * scale);
+        const srcY = Math.round(slice.y_start * scale);
+        const srcW = Math.round(((slice.x_end ?? frameWidth) - (slice.x_start ?? 0)) * scale);
+        const srcH = Math.round((slice.y_end - slice.y_start) * scale);
         const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth;
-        canvas.height = Math.round((slice.y_end - slice.y_start) * scale);
+        canvas.width = srcW;
+        canvas.height = srcH;
         const ctx = canvas.getContext('2d');
         if (!ctx) { reject(new Error('Canvas 2D context unavailable')); return; }
-        ctx.drawImage(
-          img,
-          0, Math.round(slice.y_start * scale),
-          img.naturalWidth, canvas.height,
-          0, 0, canvas.width, canvas.height
-        );
+        ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH);
         results.push({
           id: slice.id,
           name: slice.name,
