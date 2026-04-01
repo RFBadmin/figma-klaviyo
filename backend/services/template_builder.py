@@ -51,9 +51,10 @@ def build_email_html(slices: List[dict]) -> str:
           </td>
         </tr>"""
         else:
-            # Vertical split — ONE data-klaviyo-region for the whole row,
-            # with a zero-spacing nested table inside. Individual per-cell regions
-            # cause Klaviyo to inject its own padding between blocks (the gap).
+            # Vertical split — each column is its own data-klaviyo-region so
+            # Klaviyo's USER_DRAGGABLE editor renders each image as a separate
+            # editable block. They sit side-by-side inside a zero-gap table.
+            # NOTE: NO align="center" on cells — that was the original gap cause.
             frame_width = max((s.get('x_end') or EMAIL_WIDTH) for s in row) or EMAIL_WIDTH
             row_sorted = sorted(row, key=lambda s: s.get('x_start') or 0)
 
@@ -70,8 +71,7 @@ def build_email_html(slices: List[dict]) -> str:
                     widths.append(w)
                     running += w
 
-            # No whitespace between inner tags — prevents phantom 1px gaps
-            inner_cells = ""
+            cells = ""
             for slice_item, cell_width in zip(row_sorted, widths):
                 link = _normalize_url(slice_item.get('link') or '#')
                 alt_text = slice_item.get('alt_text') or slice_item.get('name', '')
@@ -80,20 +80,21 @@ def build_email_html(slices: List[dict]) -> str:
                     or slice_item.get('compressed_url')
                     or (f"data:image/png;base64,{slice_item['image_base64']}" if slice_item.get('image_base64') else '')
                 )
-                inner_cells += (
-                    f'<td style="padding: 0; vertical-align: top;" width="{cell_width}">'
-                    f'<a href="{link}" target="_blank" style="display: block; text-decoration: none;">'
+                # Each td has its own region — no align="center", fixed px width on img
+                cells += (
+                    f'<td data-klaviyo-region="true" data-klaviyo-region-width-pixels="{cell_width}" '
+                    f'style="padding: 0; vertical-align: top;" width="{cell_width}">'
+                    f'<div class="klaviyo-block klaviyo-image-block">'
+                    f'<a href="{link}" target="_blank" style="display: block;">'
                     f'<img src="{image_url}" alt="{_escape_html(alt_text)}" width="{cell_width}" '
-                    f'style="display: block; border: 0;" />'
-                    f'</a></td>'
+                    f'style="display: block; width: {cell_width}px; border: 0;" />'
+                    f'</a></div></td>'
                 )
 
             slice_rows += f"""
         <tr>
-          <td align="center" data-klaviyo-region="true" data-klaviyo-region-width-pixels="{EMAIL_WIDTH}" style="padding: 0; font-size: 0; line-height: 0;">
-            <div class="klaviyo-block klaviyo-image-block">
-              <table cellspacing="0" cellpadding="0" border="0" width="{EMAIL_WIDTH}" style="border-collapse: collapse;"><tr>{inner_cells}</tr></table>
-            </div>
+          <td style="padding: 0; font-size: 0; line-height: 0;">
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="{EMAIL_WIDTH}"><tr>{cells}</tr></table>
           </td>
         </tr>"""
 
