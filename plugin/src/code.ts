@@ -148,7 +148,7 @@ figma.ui.onmessage = async (msg: UIMessage) => {
         const frameNode = figma.getNodeById(msg.frameId) as FrameNode;
         if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
         const bytes = await frameNode.exportAsync({
-          format: 'PNG',
+          format: 'JPG',
           constraint: { type: 'SCALE', value: 1 }
         });
         figma.ui.postMessage({ type: 'FRAME_EXPORTED', data: uint8ArrayToBase64(bytes), _reqId: reqId });
