@@ -7,8 +7,6 @@ from utils.encryption import encrypt_key, decrypt_key
 
 brands_bp = Blueprint('brands', __name__)
 
-# Allow overriding via env var so Railway volume mounts work:
-# Set BRANDS_FILE=/data/brands.json + mount a Railway Volume at /data
 BRANDS_FILE = os.environ.get(
     'BRANDS_FILE',
     os.path.join(os.path.dirname(__file__), '..', 'brands.json')
