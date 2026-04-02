@@ -6,6 +6,7 @@ dockerfilePath = "Dockerfile"
 healthcheckPath = "/health"
 healthcheckTimeout = 30
 restartPolicyType = "on_failure"
+startCommand = "/entrypoint.sh gunicorn --bind 0.0.0.0:8080 --workers 2 --timeout 120 app:app"
 
 # ── Persistent Volume ─────────────────────────────────────────────────────────
 # brands.json lives at /data/brands.json so it survives every redeploy.
