@@ -33,7 +33,7 @@ The script will:
 - Compile the plugin
 - Print the exact file path you need for Figma
 
-> First run takes ~30 seconds to download the Node.js image. Subsequent runs are instant.
+> First run takes ~30 seconds to download the Node.js image. Subsequent runs are instant
 
 ---
 
