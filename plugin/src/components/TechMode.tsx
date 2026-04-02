@@ -30,6 +30,17 @@ function generateId(): string {
   return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
+/** Copy text to clipboard — uses textarea fallback since Figma blocks navigator.clipboard. */
+function copyToClipboard(text: string): void {
+  const el = document.createElement('textarea');
+  el.value = text;
+  el.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0';
+  document.body.appendChild(el);
+  el.select();
+  document.execCommand('copy');
+  document.body.removeChild(el);
+}
+
 export function TechMode({ frames }: Props) {
   const [step, setStep] = useState<Step>('key_setup');
   const [klaviyoKey, setKlaviyoKey] = useState<string | null>(null);
@@ -378,13 +389,13 @@ export function TechMode({ frames }: Props) {
                   {r.templateUrl && (
                     <div class="result-link-row">
                       <a href={r.templateUrl} target="_blank" rel="noreferrer">View Template →</a>
-                      <button class="btn-xs btn-secondary" onClick={() => navigator.clipboard.writeText(r.templateUrl!)}>Copy Link</button>
+                      <button class="btn-xs btn-secondary" onClick={() => copyToClipboard(r.templateUrl!)}>Copy Link</button>
                     </div>
                   )}
                   {r.campaignUrl && (
                     <div class="result-link-row">
                       <a href={r.campaignUrl} target="_blank" rel="noreferrer">View Campaign →</a>
-                      <button class="btn-xs btn-secondary" onClick={() => navigator.clipboard.writeText(r.campaignUrl!)}>Copy Link</button>
+                      <button class="btn-xs btn-secondary" onClick={() => copyToClipboard(r.campaignUrl!)}>Copy Link</button>
                     </div>
                   )}
                 </div>

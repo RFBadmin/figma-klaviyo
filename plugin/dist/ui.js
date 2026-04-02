@@ -2007,6 +2007,15 @@
   function generateId3() {
     return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
   }
+  function copyToClipboard(text) {
+    const el = document.createElement("textarea");
+    el.value = text;
+    el.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand("copy");
+    document.body.removeChild(el);
+  }
   function TechMode({ frames }) {
     const [step, setStep] = d2("key_setup");
     const [klaviyoKey, setKlaviyoKey] = d2(null);
@@ -2309,11 +2318,11 @@ ${JSON.stringify(errData.detail, null, 2)}` : "";
           /* @__PURE__ */ u3("div", { class: "result-links", children: [
             r3.templateUrl && /* @__PURE__ */ u3("div", { class: "result-link-row", children: [
               /* @__PURE__ */ u3("a", { href: r3.templateUrl, target: "_blank", rel: "noreferrer", children: "View Template \u2192" }),
-              /* @__PURE__ */ u3("button", { class: "btn-xs btn-secondary", onClick: () => navigator.clipboard.writeText(r3.templateUrl), children: "Copy Link" })
+              /* @__PURE__ */ u3("button", { class: "btn-xs btn-secondary", onClick: () => copyToClipboard(r3.templateUrl), children: "Copy Link" })
             ] }),
             r3.campaignUrl && /* @__PURE__ */ u3("div", { class: "result-link-row", children: [
               /* @__PURE__ */ u3("a", { href: r3.campaignUrl, target: "_blank", rel: "noreferrer", children: "View Campaign \u2192" }),
-              /* @__PURE__ */ u3("button", { class: "btn-xs btn-secondary", onClick: () => navigator.clipboard.writeText(r3.campaignUrl), children: "Copy Link" })
+              /* @__PURE__ */ u3("button", { class: "btn-xs btn-secondary", onClick: () => copyToClipboard(r3.campaignUrl), children: "Copy Link" })
             ] })
           ] })
         ] }, i3)) }),
