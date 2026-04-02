@@ -950,6 +950,21 @@
       userPickedRef.current = null;
       stopRef.current = false;
     }), [checkedIds, frames, frameStates, sliceFrame]);
+    y2(() => {
+      const handler = (event) => {
+        var _a2, _b2;
+        const msg = (_a2 = event.data) == null ? void 0 : _a2.pluginMessage;
+        if (!msg || msg.type !== "FIGMA_SLICES_CHANGED") return;
+        const changedFrameId = msg.frameId;
+        const targetFrame = frames.find((f4) => f4.id === changedFrameId);
+        if (!targetFrame) return;
+        const currentState = (_b2 = frameStatesRef.current[changedFrameId]) != null ? _b2 : defaultState();
+        if (currentState.step === "analyzing") return;
+        sliceFrame(__spreadProps(__spreadValues({}, targetFrame), { hasFigmaSlices: true }));
+      };
+      window.addEventListener("message", handler);
+      return () => window.removeEventListener("message", handler);
+    }, [frames, sliceFrame]);
     const applyToFrame = q2((targetFrame, currentState) => __async(null, null, function* () {
       try {
         const exported = yield createSliceNodes(targetFrame.id, currentState.slices);
@@ -2292,8 +2307,14 @@ ${JSON.stringify(errData.detail, null, 2)}` : "";
             r3.frameName
           ] }),
           /* @__PURE__ */ u3("div", { class: "result-links", children: [
-            r3.templateUrl && /* @__PURE__ */ u3("a", { href: r3.templateUrl, target: "_blank", rel: "noreferrer", children: "View Template \u2192" }),
-            r3.campaignUrl && /* @__PURE__ */ u3("a", { href: r3.campaignUrl, target: "_blank", rel: "noreferrer", children: "View Campaign \u2192" })
+            r3.templateUrl && /* @__PURE__ */ u3("div", { class: "result-link-row", children: [
+              /* @__PURE__ */ u3("a", { href: r3.templateUrl, target: "_blank", rel: "noreferrer", children: "View Template \u2192" }),
+              /* @__PURE__ */ u3("button", { class: "btn-xs btn-secondary", onClick: () => navigator.clipboard.writeText(r3.templateUrl), children: "Copy Link" })
+            ] }),
+            r3.campaignUrl && /* @__PURE__ */ u3("div", { class: "result-link-row", children: [
+              /* @__PURE__ */ u3("a", { href: r3.campaignUrl, target: "_blank", rel: "noreferrer", children: "View Campaign \u2192" }),
+              /* @__PURE__ */ u3("button", { class: "btn-xs btn-secondary", onClick: () => navigator.clipboard.writeText(r3.campaignUrl), children: "Copy Link" })
+            ] })
           ] })
         ] }, i3)) }),
         /* @__PURE__ */ u3("button", { class: "btn-secondary", onClick: () => setStep("configure"), children: "Push Again" })

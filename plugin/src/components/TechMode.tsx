@@ -376,10 +376,16 @@ export function TechMode({ frames }: Props) {
                 {pushResults.length > 1 && <strong class="result-frame-name">📄 {r.frameName}</strong>}
                 <div class="result-links">
                   {r.templateUrl && (
-                    <a href={r.templateUrl} target="_blank" rel="noreferrer">View Template →</a>
+                    <div class="result-link-row">
+                      <a href={r.templateUrl} target="_blank" rel="noreferrer">View Template →</a>
+                      <button class="btn-xs btn-secondary" onClick={() => navigator.clipboard.writeText(r.templateUrl!)}>Copy Link</button>
+                    </div>
                   )}
                   {r.campaignUrl && (
-                    <a href={r.campaignUrl} target="_blank" rel="noreferrer">View Campaign →</a>
+                    <div class="result-link-row">
+                      <a href={r.campaignUrl} target="_blank" rel="noreferrer">View Campaign →</a>
+                      <button class="btn-xs btn-secondary" onClick={() => navigator.clipboard.writeText(r.campaignUrl!)}>Copy Link</button>
+                    </div>
                   )}
                 </div>
               </div>

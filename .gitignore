@@ -1,6 +1,5 @@
 # ── Environment & secrets ─────────────────────────────────────────────────────
 backend/.env
-backend/brands.json
 *.env
 *.env.local
 

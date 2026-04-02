@@ -82,15 +82,25 @@ figma.on('documentchange', (event) => {
   docChangeTimer = setTimeout(() => {
     docChangeTimer = null;
 
-    // Check every email frame — if it USED to have slices but no longer does,
-    // clear the persisted pluginData so it won't reload as "sliced" next time.
+    // Detect slice-level changes per frame and notify UI for live preview updates
+    const framesWithSliceChange: string[] = [];
     for (const frame of getAllEmailFrames()) {
       const hadSlices = frameSliceState.get(frame.id) ?? false;
       const hasSlices = frameHasFigmaSlices(frame);
       if (hadSlices && !hasSlices) {
         clearSliceData(frame.id);
       }
+      // If slice presence changed OR frame already has slices (geometry may have changed),
+      // flag it for a live reload in the plugin UI
+      if (hadSlices !== hasSlices || hasSlices) {
+        framesWithSliceChange.push(frame.id);
+      }
       frameSliceState.set(frame.id, hasSlices);
+    }
+
+    // Notify UI of slice changes so the preview updates live
+    for (const frameId of framesWithSliceChange) {
+      figma.ui.postMessage({ type: 'FIGMA_SLICES_CHANGED', frameId });
     }
 
     // Re-send full frame list to UI

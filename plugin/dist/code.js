@@ -147,13 +147,20 @@
         docChangeTimer = setTimeout(() => {
           var _a;
           docChangeTimer = null;
+          const framesWithSliceChange = [];
           for (const frame of getAllEmailFrames()) {
             const hadSlices = (_a = frameSliceState.get(frame.id)) != null ? _a : false;
             const hasSlices = frameHasFigmaSlices(frame);
             if (hadSlices && !hasSlices) {
               clearSliceData(frame.id);
             }
+            if (hadSlices !== hasSlices || hasSlices) {
+              framesWithSliceChange.push(frame.id);
+            }
             frameSliceState.set(frame.id, hasSlices);
+          }
+          for (const frameId of framesWithSliceChange) {
+            figma.ui.postMessage({ type: "FIGMA_SLICES_CHANGED", frameId });
           }
           const sel = getSelectedEmailFrames();
           if (sel.length > 0) {

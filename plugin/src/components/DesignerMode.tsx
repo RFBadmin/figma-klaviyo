@@ -255,6 +255,25 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
     stopRef.current = false;
   }, [checkedIds, frames, frameStates, sliceFrame]);
 
+  // Live update: when the user draws/edits/deletes Figma slice nodes on the canvas,
+  // reload the slice preview immediately without any button click.
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      const msg = event.data?.pluginMessage;
+      if (!msg || msg.type !== 'FIGMA_SLICES_CHANGED') return;
+      const changedFrameId: string = msg.frameId;
+      const targetFrame = frames.find(f => f.id === changedFrameId);
+      if (!targetFrame) return;
+      const currentState = frameStatesRef.current[changedFrameId] ?? defaultState();
+      // Don't interrupt an active AI analysis
+      if (currentState.step === 'analyzing') return;
+      // Re-run sliceFrame which loads Figma slices first (instant, no spinner)
+      sliceFrame({ ...targetFrame, hasFigmaSlices: true });
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [frames, sliceFrame]);
+
   const applyToFrame = useCallback(async (targetFrame: FrameInfo, currentState: FrameState): Promise<Map<string, string> | null> => {
     try {
       const exported = await createSliceNodes(targetFrame.id, currentState.slices);

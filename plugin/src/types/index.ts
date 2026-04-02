@@ -151,6 +151,7 @@ export type PluginMessage =
   | { type: 'USER_INFO'; name: string }
   | { type: 'KLAVIYO_KEY_LOADED'; key: string | null }
   | { type: 'KLAVIYO_KEY_SAVED' }
+  | { type: 'FIGMA_SLICES_CHANGED'; frameId: string }
   | { type: 'ERROR'; message: string; _reqId?: string };
 
 export type UIMessage =
