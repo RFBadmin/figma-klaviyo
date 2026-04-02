@@ -178,6 +178,8 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
     }
 
     // ── No Figma slices (or forceAI) — run AI analysis ───────────────────────
+    // Remove any pre-existing Figma slice nodes so the canvas is clean before re-analyzing
+    parent.postMessage({ pluginMessage: { type: 'CLEAR_SLICE_NODES', frameId: targetFrame.id } }, '*');
     patchState(targetFrame.id, { error: null, step: 'analyzing' });
     try {
       if (stopRef.current) return;

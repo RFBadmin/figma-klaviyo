@@ -130,6 +130,10 @@ export interface LayoutBand {
   name: string;
   y_start: number;
   y_end: number;
+  nodeType?: string;       // e.g. 'FRAME' | 'TEXT' | 'RECTANGLE' | 'COMPONENT' | 'GROUP'
+  hasImageFill?: boolean;  // true if the node has an IMAGE-type fill
+  x_start?: number;        // only present for column bands (side-by-side detection)
+  x_end?: number;          // only present for column bands
 }
 
 export type PluginMessage =
@@ -163,4 +167,5 @@ export type UIMessage =
   | { type: 'GET_USER_INFO' }
   | { type: 'GET_FIGMA_SLICES'; frameId: string; _reqId?: string }
   | { type: 'CREATE_SLICE_NODES'; frameId: string; slices: Array<{ name: string; y_start: number; y_end: number; x_start?: number; x_end?: number }>; _reqId?: string }
+  | { type: 'CLEAR_SLICE_NODES'; frameId: string }
   | { type: 'CLOSE_PLUGIN' };

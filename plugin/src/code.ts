@@ -3,7 +3,7 @@
 import { saveSliceData, loadSliceData, clearSliceData } from './utils/metadata';
 import { uint8ArrayToBase64 } from './utils/export';
 import { getSelectedEmailFrames, getAllEmailFrames } from './utils/figma-api';
-import type { UIMessage } from './types';
+import type { UIMessage, LayoutBand } from './types';
 
 // ─── Plugin Init ──────────────────────────────────────────────────────────────
 
@@ -159,7 +159,8 @@ figma.ui.onmessage = async (msg: UIMessage) => {
         const layoutFrame = figma.getNodeById(msg.frameId) as FrameNode;
         if (!layoutFrame) throw new Error(`Frame ${msg.frameId} not found`);
         const frameAbsY = layoutFrame.absoluteBoundingBox?.y ?? 0;
-        const bands = computeSliceBands(layoutFrame, frameAbsY, layoutFrame.height);
+        const frameAbsX = layoutFrame.absoluteBoundingBox?.x ?? 0;
+        const bands = computeSliceBands(layoutFrame, frameAbsY, frameAbsX, layoutFrame.height, layoutFrame.width);
         figma.ui.postMessage({ type: 'FRAME_LAYOUT', bands, frameHeight: layoutFrame.height, _reqId: reqId });
         break;
       }
@@ -195,6 +196,14 @@ figma.ui.onmessage = async (msg: UIMessage) => {
         const figmaSlices = figmaSlicesRaw.filter((s): s is NonNullable<typeof s> => s !== null);
         figmaSlices.sort((a, b) => a.y_start - b.y_start || a.x_start - b.x_start);
         figma.ui.postMessage({ type: 'FIGMA_SLICES_LOADED', slices: figmaSlices, _reqId: reqId });
+        break;
+      }
+
+      case 'CLEAR_SLICE_NODES': {
+        const clearFrame = figma.getNodeById(msg.frameId) as FrameNode;
+        if (clearFrame) {
+          for (const node of findSliceNodesRecursive(clearFrame)) node.remove();
+        }
         break;
       }
 
@@ -312,68 +321,106 @@ function findSliceNodesRecursive(container: ChildrenMixin): SliceNode[] {
 // ─── Node-based Slice Band Computation ───────────────────────────────────────
 
 /**
- * Walk the frame's children (recursing into groups/frames if needed) and
- * return merged vertical bands that correspond to natural slice boundaries.
- * Never cuts through content — uses actual node bounding boxes.
+ * Walk the frame's children and return enriched bands for the backend.
+ * - Single-child rows → full-width band (no x_start/x_end)
+ * - Multi-child rows with overlapping x → merged full-width band (layered content)
+ * - Multi-child rows with non-overlapping x → one column band per child (side-by-side)
  */
 function computeSliceBands(
   frame: FrameNode,
   frameAbsY: number,
-  frameHeight: number
-): Array<{ name: string; y_start: number; y_end: number }> {
-  const raw = collectChildBands(frame.children, frameAbsY, frameHeight);
+  frameAbsX: number,
+  frameHeight: number,
+  frameWidth: number
+): LayoutBand[] {
+  let raw = collectChildBands(frame.children, frameAbsY, frameAbsX, frameHeight, frameWidth);
 
   // If the whole frame collapsed into ≤1 band (e.g. one giant group), recurse one level deeper
   if (raw.length <= 1 && frame.children.length === 1) {
     const only = frame.children[0];
     if ('children' in only) {
-      const deeper = collectChildBands((only as FrameNode).children, frameAbsY, frameHeight);
-      if (deeper.length > 1) raw.splice(0, raw.length, ...deeper);
+      const deeper = collectChildBands((only as FrameNode).children, frameAbsY, frameAbsX, frameHeight, frameWidth);
+      if (deeper.length > 1) raw = deeper;
     }
+  }
+
+  if (raw.length === 0) {
+    return [{ name: 'full_email', y_start: 0, y_end: frameHeight }];
   }
 
   // Sort by y_start
   raw.sort((a, b) => a.y_start - b.y_start);
 
-  // Merge overlapping / nearly-adjacent bands (≤8 px gap)
-  const merged: typeof raw = [];
-  for (const band of raw) {
-    if (merged.length === 0) {
-      merged.push({ ...band });
+  // ── Step 1: Group nodes into visual rows (overlapping y within 8px) ──────────
+  type Row = { y_start: number; y_end: number; nodes: LayoutBand[] };
+  const rows: Row[] = [];
+  for (const node of raw) {
+    const last = rows[rows.length - 1];
+    if (!last || node.y_start > last.y_end + 8) {
+      rows.push({ y_start: node.y_start, y_end: node.y_end, nodes: [node] });
     } else {
-      const last = merged[merged.length - 1];
-      if (band.y_start <= last.y_end + 8) {
-        last.y_end = Math.max(last.y_end, band.y_end);
+      last.y_end = Math.max(last.y_end, node.y_end);
+      last.nodes.push(node);
+    }
+  }
+
+  // ── Step 2: Per-row: decide full-width vs. column bands ──────────────────────
+  const result: LayoutBand[] = [];
+  for (const row of rows) {
+    if (row.nodes.length === 1) {
+      // Single node in row → full-width band
+      const n = row.nodes[0];
+      result.push({ name: n.name, y_start: row.y_start, y_end: row.y_end, nodeType: n.nodeType, hasImageFill: n.hasImageFill });
+    } else {
+      // Multiple nodes — check for x overlap
+      row.nodes.sort((a, b) => (a.x_start ?? 0) - (b.x_start ?? 0));
+      let anyOverlap = false;
+      for (let i = 0; i < row.nodes.length - 1 && !anyOverlap; i++) {
+        if ((row.nodes[i].x_end ?? frameWidth) > (row.nodes[i + 1].x_start ?? 0)) {
+          anyOverlap = true;
+        }
+      }
+      if (anyOverlap) {
+        // Layered elements (e.g. text on hero image) → merge into one full-width band
+        // Prefer the node with an image fill or the largest node as the representative name
+        const rep = row.nodes.find(n => n.hasImageFill) ?? row.nodes.reduce((a, b) =>
+          ((b.x_end ?? frameWidth) - (b.x_start ?? 0)) > ((a.x_end ?? frameWidth) - (a.x_start ?? 0)) ? b : a
+        );
+        result.push({ name: rep.name, y_start: row.y_start, y_end: row.y_end, nodeType: rep.nodeType, hasImageFill: rep.hasImageFill });
       } else {
-        merged.push({ ...band });
+        // Genuine side-by-side columns → one band per node with x coords
+        for (const n of row.nodes) {
+          result.push({ name: n.name, y_start: row.y_start, y_end: row.y_end, x_start: n.x_start, x_end: n.x_end, nodeType: n.nodeType, hasImageFill: n.hasImageFill });
+        }
       }
     }
   }
 
-  if (merged.length === 0) {
-    return [{ name: 'full_email', y_start: 0, y_end: frameHeight }];
+  // ── Step 3: Gap-fill full-width bands only ───────────────────────────────────
+  const fullWidth = result.filter(b => b.x_start === undefined);
+  if (fullWidth.length > 0) {
+    fullWidth[0].y_start = 0;
+    fullWidth[fullWidth.length - 1].y_end = frameHeight;
+    for (let i = 0; i < fullWidth.length - 1; i++) {
+      const mid = Math.round((fullWidth[i].y_end + fullWidth[i + 1].y_start) / 2);
+      fullWidth[i].y_end = mid;
+      fullWidth[i + 1].y_start = mid;
+    }
+    // Sync column bands: update y extents to match their row's gap-filled full-width neighbors
+    // (column bands already share exact y — no adjustment needed since rows were precise)
   }
 
-  // Absorb gaps into adjacent bands instead of creating spacer slices:
-  // first band starts at 0, each band's end extends to meet the next band's start,
-  // and the last band ends at frameHeight.
-  merged[0].y_start = 0;
-  for (let i = 0; i < merged.length - 1; i++) {
-    const mid = Math.round((merged[i].y_end + merged[i + 1].y_start) / 2);
-    merged[i].y_end = mid;
-    merged[i + 1].y_start = mid;
-  }
-  merged[merged.length - 1].y_end = frameHeight;
-
-  return merged;
+  return result;
 }
 
 function collectChildBands(
   children: ReadonlyArray<SceneNode>,
   frameAbsY: number,
-  frameHeight: number
-): Array<{ name: string; y_start: number; y_end: number }> {
-  const bands: Array<{ name: string; y_start: number; y_end: number }> = [];
+  frameAbsX: number,
+  frameHeight: number,
+  frameWidth: number
+): LayoutBand[] {
+  const bands: LayoutBand[] = [];
   for (const child of children) {
     if (!child.visible) continue;
     let bbox: Rect | null;
@@ -381,9 +428,13 @@ function collectChildBands(
     if (!bbox) continue;
     const y_start = Math.max(0, Math.round(bbox.y - frameAbsY));
     const y_end = Math.min(frameHeight, Math.round(bbox.y - frameAbsY + bbox.height));
-    if (y_end > y_start) {
-      bands.push({ name: child.name, y_start, y_end });
-    }
+    if (y_end <= y_start) continue;
+    const x_start = Math.max(0, Math.round(bbox.x - frameAbsX));
+    const x_end = Math.min(frameWidth, Math.round(bbox.x - frameAbsX + bbox.width));
+    const hasImageFill = 'fills' in child
+      && (child as GeometryMixin).fills !== figma.mixed
+      && ((child as GeometryMixin).fills as Paint[]).some((f: Paint) => f.type === 'IMAGE' && f.visible !== false);
+    bands.push({ name: child.name, y_start, y_end, x_start, x_end, nodeType: child.type, hasImageFill });
   }
   return bands;
 }

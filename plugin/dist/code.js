@@ -1,22 +1,6 @@
 "use strict";
 (() => {
-  var __defProp = Object.defineProperty;
   var __getOwnPropNames = Object.getOwnPropertyNames;
-  var __getOwnPropSymbols = Object.getOwnPropertySymbols;
-  var __hasOwnProp = Object.prototype.hasOwnProperty;
-  var __propIsEnum = Object.prototype.propertyIsEnumerable;
-  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-  var __spreadValues = (a, b) => {
-    for (var prop in b || (b = {}))
-      if (__hasOwnProp.call(b, prop))
-        __defNormalProp(a, prop, b[prop]);
-    if (__getOwnPropSymbols)
-      for (var prop of __getOwnPropSymbols(b)) {
-        if (__propIsEnum.call(b, prop))
-          __defNormalProp(a, prop, b[prop]);
-      }
-    return a;
-  };
   var __esm = (fn, res) => function __init() {
     return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
   };
@@ -188,7 +172,7 @@
         }, 400);
       });
       figma.ui.onmessage = (msg) => __async(null, null, function* () {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q;
         const reqId = msg._reqId;
         try {
           switch (msg.type) {
@@ -227,15 +211,16 @@
               const layoutFrame = figma.getNodeById(msg.frameId);
               if (!layoutFrame) throw new Error(`Frame ${msg.frameId} not found`);
               const frameAbsY = (_b = (_a = layoutFrame.absoluteBoundingBox) == null ? void 0 : _a.y) != null ? _b : 0;
-              const bands = computeSliceBands(layoutFrame, frameAbsY, layoutFrame.height);
+              const frameAbsX = (_d = (_c = layoutFrame.absoluteBoundingBox) == null ? void 0 : _c.x) != null ? _d : 0;
+              const bands = computeSliceBands(layoutFrame, frameAbsY, frameAbsX, layoutFrame.height, layoutFrame.width);
               figma.ui.postMessage({ type: "FRAME_LAYOUT", bands, frameHeight: layoutFrame.height, _reqId: reqId });
               break;
             }
             case "GET_FIGMA_SLICES": {
               const frameNode = figma.getNodeById(msg.frameId);
               if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
-              const frameAbsY = (_d = (_c = frameNode.absoluteBoundingBox) == null ? void 0 : _c.y) != null ? _d : 0;
-              const frameAbsX = (_f = (_e = frameNode.absoluteBoundingBox) == null ? void 0 : _e.x) != null ? _f : 0;
+              const frameAbsY = (_f = (_e = frameNode.absoluteBoundingBox) == null ? void 0 : _e.y) != null ? _f : 0;
+              const frameAbsX = (_h = (_g = frameNode.absoluteBoundingBox) == null ? void 0 : _g.x) != null ? _h : 0;
               const sliceNodes = findSliceNodesRecursive(frameNode);
               if (sliceNodes.length === 0) {
                 figma.ui.postMessage({ type: "FIGMA_SLICES_LOADED", slices: [], _reqId: reqId });
@@ -259,6 +244,13 @@
               figma.ui.postMessage({ type: "FIGMA_SLICES_LOADED", slices: figmaSlices, _reqId: reqId });
               break;
             }
+            case "CLEAR_SLICE_NODES": {
+              const clearFrame = figma.getNodeById(msg.frameId);
+              if (clearFrame) {
+                for (const node of findSliceNodesRecursive(clearFrame)) node.remove();
+              }
+              break;
+            }
             case "CREATE_SLICE_NODES": {
               const frameNode = figma.getNodeById(msg.frameId);
               if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
@@ -267,17 +259,17 @@
               for (const slice of msg.slices) {
                 const sliceNode = figma.createSlice();
                 frameNode.appendChild(sliceNode);
-                sliceNode.x = (_g = slice.x_start) != null ? _g : 0;
+                sliceNode.x = (_i = slice.x_start) != null ? _i : 0;
                 sliceNode.y = slice.y_start;
                 sliceNode.resize(
-                  ((_h = slice.x_end) != null ? _h : frameNode.width) - ((_i = slice.x_start) != null ? _i : 0),
+                  ((_j = slice.x_end) != null ? _j : frameNode.width) - ((_k = slice.x_start) != null ? _k : 0),
                   slice.y_end - slice.y_start
                 );
                 sliceNode.name = slice.name;
               }
               const createdNodes = frameNode.children.filter((n) => n.type === "SLICE");
-              const absY = (_k = (_j = frameNode.absoluteBoundingBox) == null ? void 0 : _j.y) != null ? _k : 0;
-              const absX = (_m = (_l = frameNode.absoluteBoundingBox) == null ? void 0 : _l.x) != null ? _m : 0;
+              const absY = (_m = (_l = frameNode.absoluteBoundingBox) == null ? void 0 : _l.y) != null ? _m : 0;
+              const absX = (_o = (_n = frameNode.absoluteBoundingBox) == null ? void 0 : _n.x) != null ? _o : 0;
               const exportedSlicesRaw = yield Promise.all(
                 createdNodes.map((node) => __async(null, null, function* () {
                   const bytes = yield node.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: 1 } });
@@ -311,7 +303,7 @@
             case "GET_USER_INFO": {
               figma.ui.postMessage({
                 type: "USER_INFO",
-                name: (_o = (_n = figma.currentUser) == null ? void 0 : _n.name) != null ? _o : "Unknown"
+                name: (_q = (_p = figma.currentUser) == null ? void 0 : _p.name) != null ? _q : "Unknown"
               });
               break;
             }
@@ -347,42 +339,74 @@
         }
         return slices;
       }
-      function computeSliceBands(frame, frameAbsY, frameHeight) {
-        const raw = collectChildBands(frame.children, frameAbsY, frameHeight);
+      function computeSliceBands(frame, frameAbsY, frameAbsX, frameHeight, frameWidth) {
+        var _a, _b, _c;
+        let raw = collectChildBands(frame.children, frameAbsY, frameAbsX, frameHeight, frameWidth);
         if (raw.length <= 1 && frame.children.length === 1) {
           const only = frame.children[0];
           if ("children" in only) {
-            const deeper = collectChildBands(only.children, frameAbsY, frameHeight);
-            if (deeper.length > 1) raw.splice(0, raw.length, ...deeper);
+            const deeper = collectChildBands(only.children, frameAbsY, frameAbsX, frameHeight, frameWidth);
+            if (deeper.length > 1) raw = deeper;
           }
         }
+        if (raw.length === 0) {
+          return [{ name: "full_email", y_start: 0, y_end: frameHeight }];
+        }
         raw.sort((a, b) => a.y_start - b.y_start);
-        const merged = [];
-        for (const band of raw) {
-          if (merged.length === 0) {
-            merged.push(__spreadValues({}, band));
+        const rows = [];
+        for (const node of raw) {
+          const last = rows[rows.length - 1];
+          if (!last || node.y_start > last.y_end + 8) {
+            rows.push({ y_start: node.y_start, y_end: node.y_end, nodes: [node] });
           } else {
-            const last = merged[merged.length - 1];
-            if (band.y_start <= last.y_end + 8) {
-              last.y_end = Math.max(last.y_end, band.y_end);
+            last.y_end = Math.max(last.y_end, node.y_end);
+            last.nodes.push(node);
+          }
+        }
+        const result = [];
+        for (const row of rows) {
+          if (row.nodes.length === 1) {
+            const n = row.nodes[0];
+            result.push({ name: n.name, y_start: row.y_start, y_end: row.y_end, nodeType: n.nodeType, hasImageFill: n.hasImageFill });
+          } else {
+            row.nodes.sort((a, b) => {
+              var _a2, _b2;
+              return ((_a2 = a.x_start) != null ? _a2 : 0) - ((_b2 = b.x_start) != null ? _b2 : 0);
+            });
+            let anyOverlap = false;
+            for (let i = 0; i < row.nodes.length - 1 && !anyOverlap; i++) {
+              if (((_a = row.nodes[i].x_end) != null ? _a : frameWidth) > ((_b = row.nodes[i + 1].x_start) != null ? _b : 0)) {
+                anyOverlap = true;
+              }
+            }
+            if (anyOverlap) {
+              const rep = (_c = row.nodes.find((n) => n.hasImageFill)) != null ? _c : row.nodes.reduce(
+                (a, b) => {
+                  var _a2, _b2, _c2, _d;
+                  return ((_a2 = b.x_end) != null ? _a2 : frameWidth) - ((_b2 = b.x_start) != null ? _b2 : 0) > ((_c2 = a.x_end) != null ? _c2 : frameWidth) - ((_d = a.x_start) != null ? _d : 0) ? b : a;
+                }
+              );
+              result.push({ name: rep.name, y_start: row.y_start, y_end: row.y_end, nodeType: rep.nodeType, hasImageFill: rep.hasImageFill });
             } else {
-              merged.push(__spreadValues({}, band));
+              for (const n of row.nodes) {
+                result.push({ name: n.name, y_start: row.y_start, y_end: row.y_end, x_start: n.x_start, x_end: n.x_end, nodeType: n.nodeType, hasImageFill: n.hasImageFill });
+              }
             }
           }
         }
-        if (merged.length === 0) {
-          return [{ name: "full_email", y_start: 0, y_end: frameHeight }];
+        const fullWidth = result.filter((b) => b.x_start === void 0);
+        if (fullWidth.length > 0) {
+          fullWidth[0].y_start = 0;
+          fullWidth[fullWidth.length - 1].y_end = frameHeight;
+          for (let i = 0; i < fullWidth.length - 1; i++) {
+            const mid = Math.round((fullWidth[i].y_end + fullWidth[i + 1].y_start) / 2);
+            fullWidth[i].y_end = mid;
+            fullWidth[i + 1].y_start = mid;
+          }
         }
-        merged[0].y_start = 0;
-        for (let i = 0; i < merged.length - 1; i++) {
-          const mid = Math.round((merged[i].y_end + merged[i + 1].y_start) / 2);
-          merged[i].y_end = mid;
-          merged[i + 1].y_start = mid;
-        }
-        merged[merged.length - 1].y_end = frameHeight;
-        return merged;
+        return result;
       }
-      function collectChildBands(children, frameAbsY, frameHeight) {
+      function collectChildBands(children, frameAbsY, frameAbsX, frameHeight, frameWidth) {
         const bands = [];
         for (const child of children) {
           if (!child.visible) continue;
@@ -395,9 +419,11 @@
           if (!bbox) continue;
           const y_start = Math.max(0, Math.round(bbox.y - frameAbsY));
           const y_end = Math.min(frameHeight, Math.round(bbox.y - frameAbsY + bbox.height));
-          if (y_end > y_start) {
-            bands.push({ name: child.name, y_start, y_end });
-          }
+          if (y_end <= y_start) continue;
+          const x_start = Math.max(0, Math.round(bbox.x - frameAbsX));
+          const x_end = Math.min(frameWidth, Math.round(bbox.x - frameAbsX + bbox.width));
+          const hasImageFill = "fills" in child && child.fills !== figma.mixed && child.fills.some((f) => f.type === "IMAGE" && f.visible !== false);
+          bands.push({ name: child.name, y_start, y_end, x_start, x_end, nodeType: child.type, hasImageFill });
         }
         return bands;
       }

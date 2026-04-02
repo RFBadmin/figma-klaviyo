@@ -886,6 +886,7 @@
           return;
         }
       }
+      parent.postMessage({ pluginMessage: { type: "CLEAR_SLICE_NODES", frameId: targetFrame.id } }, "*");
       patchState(targetFrame.id, { error: null, step: "analyzing" });
       try {
         if (stopRef.current) return;

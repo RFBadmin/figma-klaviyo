@@ -114,9 +114,43 @@ class ClaudeVisionService:
     # ── Pass helpers ──────────────────────────────────────────────────────────
 
     def _group_bands(self, image_base64: str, width: int, height: int, bands: list) -> dict:
-        # ── Pass 1: text-only grouping ────────────────────────────────────────
+        # ── Separate column bands (x-resolved by Figma math) from stacked bands ──
+        column_bands = [b for b in bands if b.get('x_start') is not None]
+        stacked_bands = [b for b in bands if b.get('x_start') is None]
+
+        # ── Pass 1: Claude groups stacked bands semantically ──────────────────
+        stacked_slices = self._run_claude_grouping(stacked_bands, height) if stacked_bands else []
+
+        # ── Column bands are already fully resolved — emit directly ──────────
+        column_slices = [
+            {
+                'name': b['name'],
+                'y_start': b['y_start'],
+                'y_end': b['y_end'],
+                'x_start': b['x_start'],
+                'x_end': b['x_end'],
+                'alt_text': b['name']  # overwritten in Pass 3
+            }
+            for b in column_bands
+        ]
+
+        all_slices = stacked_slices + column_slices
+        all_slices.sort(key=lambda s: (s['y_start'], s.get('x_start') or 0))
+
+        # ── Pass 2: Pillow x-aware crop ───────────────────────────────────────
+        slice_images = self._slice_image(image_base64, all_slices)
+
+        # ── Pass 3: parallel alt-text vision ─────────────────────────────────
+        alt_texts = self._generate_alt_texts(slice_images, [s['name'] for s in all_slices])
+        for s, alt in zip(all_slices, alt_texts):
+            s['alt_text'] = alt
+
+        return {'slices': all_slices, 'analysis': 'Figma-driven grouping with auto column detection'}
+
+    def _run_claude_grouping(self, bands: list, height: int) -> list:
+        """Pass 1: group stacked full-width bands into logical email sections using Claude."""
         def fmt_band(i, b):
-            node_type = b.get('nodeType', '?')
+            node_type = b.get('nodeType', 'UNKNOWN')
             img_flag = ' [IMAGE FILL]' if b.get('hasImageFill') else ''
             return f"  Band {i}: y={b['y_start']}–{b['y_end']}px  [{node_type}]{img_flag}  \"{b['name']}\""
 
@@ -153,7 +187,6 @@ class ClaudeVisionService:
                 for i, b in enumerate(bands)
             ]
 
-        # Build slices from exact Figma pixel positions (placeholder alt text for now)
         slices = []
         for g in groups:
             indices = sorted(g.get('band_indices', []))
@@ -163,29 +196,22 @@ class ClaudeVisionService:
                 'name': g['name'],
                 'y_start': bands[indices[0]]['y_start'],
                 'y_end': bands[indices[-1]]['y_end'],
-                'alt_text': g['name']  # overwritten in Pass 3
+                'alt_text': g['name']
             })
 
         slices.sort(key=lambda s: s['y_start'])
         self._validate_slices(slices, height)
-
-        # ── Pass 2: Pillow physical slicing ───────────────────────────────────
-        slice_images = self._slice_image(image_base64, slices)
-
-        # ── Pass 3: parallel alt-text vision ─────────────────────────────────
-        alt_texts = self._generate_alt_texts(slice_images, [s['name'] for s in slices])
-        for s, alt in zip(slices, alt_texts):
-            s['alt_text'] = alt
-
-        return {'slices': slices, 'analysis': 'Layer-guided grouping with vision alt-text'}
+        return slices
 
     def _slice_image(self, image_base64: str, slices: list) -> list[str]:
-        """Pillow-crop the master image into per-slice PNGs. Returns list of b64 strings."""
+        """Pillow-crop the master image into per-slice PNGs, supporting x-axis crops for columns."""
         img = Image.open(io.BytesIO(base64.b64decode(image_base64)))
         results = []
         for s in slices:
-            y_end = min(s['y_end'], img.height)  # clamp defensively
-            crop = img.crop((0, s['y_start'], img.width, y_end))
+            y_end = min(s['y_end'], img.height)
+            x_start = s.get('x_start') or 0
+            x_end = min(s.get('x_end') or img.width, img.width)
+            crop = img.crop((x_start, s['y_start'], x_end, y_end))
             buf = io.BytesIO()
             crop.save(buf, format='PNG')
             results.append(base64.b64encode(buf.getvalue()).decode())
