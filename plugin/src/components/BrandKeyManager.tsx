@@ -26,6 +26,12 @@ export function BrandKeyManager({ onSelect }: Props) {
   const [newKey, setNewKey] = useState('');
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 4000);
+  };
 
   const fetchBrands = async () => {
     setLoading(true);
@@ -137,6 +143,10 @@ export function BrandKeyManager({ onSelect }: Props) {
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
+        if (res.status === 409) {
+          showToast(`"${newName.trim()}" already exists in your brand list.`);
+          return;
+        }
         throw new Error(d.error || 'Add failed');
       }
       setNewName('');
@@ -151,6 +161,12 @@ export function BrandKeyManager({ onSelect }: Props) {
 
   return (
     <div class="brand-manager">
+      {toast && (
+        <div class="brand-toast">
+          ⚠ {toast}
+          <button onClick={() => setToast(null)}>✕</button>
+        </div>
+      )}
       <div class="key-setup-header">
         <div class="key-icon">🏷️</div>
         <p>Select a brand to connect its Klaviyo account, or add a new brand below.</p>

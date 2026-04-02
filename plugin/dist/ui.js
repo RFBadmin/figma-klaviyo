@@ -1758,6 +1758,11 @@
     const [newKey, setNewKey] = d2("");
     const [adding, setAdding] = d2(false);
     const [addError, setAddError] = d2(null);
+    const [toast, setToast] = d2(null);
+    const showToast = (msg) => {
+      setToast(msg);
+      setTimeout(() => setToast(null), 4e3);
+    };
     const fetchBrands = () => __async(null, null, function* () {
       var _a;
       setLoading(true);
@@ -1875,6 +1880,10 @@
         });
         if (!res.ok) {
           const d3 = yield res.json().catch(() => ({}));
+          if (res.status === 409) {
+            showToast(`"${newName.trim()}" already exists in your brand list.`);
+            return;
+          }
           throw new Error(d3.error || "Add failed");
         }
         setNewName("");
@@ -1887,6 +1896,11 @@
       }
     });
     return /* @__PURE__ */ u3("div", { class: "brand-manager", children: [
+      toast && /* @__PURE__ */ u3("div", { class: "brand-toast", children: [
+        "\u26A0 ",
+        toast,
+        /* @__PURE__ */ u3("button", { onClick: () => setToast(null), children: "\u2715" })
+      ] }),
       /* @__PURE__ */ u3("div", { class: "key-setup-header", children: [
         /* @__PURE__ */ u3("div", { class: "key-icon", children: "\u{1F3F7}\uFE0F" }),
         /* @__PURE__ */ u3("p", { children: "Select a brand to connect its Klaviyo account, or add a new brand below." })

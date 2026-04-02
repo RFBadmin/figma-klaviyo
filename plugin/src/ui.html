@@ -200,6 +200,23 @@
     @keyframes spin { to { transform: rotate(360deg); } }
 
     /* ── Alerts ────────────────────────────────────────────────────── */
+    .brand-toast {
+      position: sticky; top: 0; z-index: 100;
+      background: #2d1a1a; border: 1px solid rgba(248,113,113,0.4);
+      border-left: 3px solid var(--red);
+      color: #f87171; padding: 9px 12px; border-radius: var(--r);
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 12px; font-weight: 500; margin-bottom: 8px;
+      animation: toast-in 0.2s ease;
+    }
+    .brand-toast button {
+      background: none; border: none; color: #f87171;
+      cursor: pointer; font-size: 14px; padding: 0 0 0 8px; line-height: 1;
+    }
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateY(-6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
     .error-banner {
       background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.22);
       border-left: 3px solid var(--red);

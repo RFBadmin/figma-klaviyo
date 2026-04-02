@@ -150,6 +150,10 @@ def add_brand():
     if not api_key.startswith('pk_') or len(api_key) < 10 or len(api_key) > 200:
         return jsonify({'error': 'apiKey must start with pk_ and be 10-200 characters'}), 400
 
+    brands = _load()
+    if name in brands:
+        return jsonify({'error': f'Brand "{name}" already exists. Use a different name or edit the existing brand.'}), 409
+
     try:
         encrypted = encrypt_key(api_key)
     except RuntimeError as e:
