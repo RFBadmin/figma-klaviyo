@@ -105,9 +105,10 @@ export function DesignerMode({ frames, onSwitchToTech }: Props) {
           return;
         }
 
-        // On first load: restore saved slice data into preview
+        // On first load: restore saved slice data into 'saved' state — no image export needed.
+        // User can click "Edit Slices" to go to preview on demand.
         if (f.existingSliceData && !existing) {
-          next[f.id] = { ...defaultState(), slices: f.existingSliceData.slices, step: 'preview' };
+          next[f.id] = { ...defaultState(), slices: f.existingSliceData.slices, step: 'saved' };
         }
       });
       return next;

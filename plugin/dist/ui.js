@@ -834,7 +834,7 @@
             return;
           }
           if (f4.existingSliceData && !existing) {
-            next[f4.id] = __spreadProps(__spreadValues({}, defaultState()), { slices: f4.existingSliceData.slices, step: "preview" });
+            next[f4.id] = __spreadProps(__spreadValues({}, defaultState()), { slices: f4.existingSliceData.slices, step: "saved" });
           }
         });
         return next;

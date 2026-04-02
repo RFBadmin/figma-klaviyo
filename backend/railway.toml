@@ -1,0 +1,21 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "on_failure"
+
+# ── Persistent Volume ─────────────────────────────────────────────────────────
+# brands.json lives at /data/brands.json so it survives every redeploy.
+#
+# One-time Railway setup (do this once in the Railway dashboard):
+#   1. Go to your backend service → Volumes → Add Volume
+#   2. Mount path: /data
+#   3. Go to Variables → add: BRANDS_FILE=/data/brands.json
+#
+# After that, all brand API keys persist forever across deploys.
+
+[[volumes]]
+mountPath = "/data"
