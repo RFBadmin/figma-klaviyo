@@ -2577,12 +2577,23 @@
     const readyFrames = frames.filter((f4) => f4.existingSliceData);
     y2(() => {
       parent.postMessage({ pluginMessage: { type: "GET_USER_INFO" } }, "*");
+      parent.postMessage({ pluginMessage: { type: "GET_LAST_BRAND" } }, "*");
       const handler = (event) => {
         var _a, _b;
         const msg = (_a = event.data) == null ? void 0 : _a.pluginMessage;
         if (!msg) return;
         if (msg.type === "USER_INFO") {
           setFigmaUserName((_b = msg.name) != null ? _b : "");
+        }
+        if (msg.type === "LAST_BRAND_LOADED" && msg.brand) {
+          fetch(`${BACKEND_URL}/api/brands/${encodeURIComponent(msg.brand)}/key`, {
+            headers: authHeaders()
+          }).then((r3) => r3.ok ? r3.json() : Promise.reject()).then((data) => {
+            setKlaviyoKey(data.apiKey);
+            setActiveBrand(msg.brand);
+            setStep("configure");
+          }).catch(() => {
+          });
         }
       };
       window.addEventListener("message", handler);
@@ -2610,6 +2621,7 @@
         setKlaviyoKey(apiKey);
         setActiveBrand(brandName);
         setStep("configure");
+        parent.postMessage({ pluginMessage: { type: "SAVE_LAST_BRAND", brand: brandName } }, "*");
       } catch (e3) {
         setConnectError(e3 instanceof Error ? e3.message : "Connection failed");
       } finally {

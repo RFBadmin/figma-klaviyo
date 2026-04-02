@@ -300,6 +300,17 @@ figma.ui.onmessage = async (msg: UIMessage) => {
         break;
       }
 
+      case 'SAVE_LAST_BRAND': {
+        await figma.clientStorage.setAsync('last_brand', msg.brand);
+        break;
+      }
+
+      case 'GET_LAST_BRAND': {
+        const brand = await figma.clientStorage.getAsync('last_brand') as string | undefined;
+        figma.ui.postMessage({ type: 'LAST_BRAND_LOADED', brand: brand ?? null });
+        break;
+      }
+
       case 'CLOSE_PLUGIN': {
         figma.closePlugin();
         break;

@@ -58,9 +58,10 @@ export function TechMode({ frames }: Props) {
   // Frames that have been sliced and saved by the designer
   const readyFrames = frames.filter(f => f.existingSliceData);
 
-  // On mount: load Figma username only (key management moved to BrandKeyManager)
+  // On mount: load username + restore last used brand automatically
   useEffect(() => {
     parent.postMessage({ pluginMessage: { type: 'GET_USER_INFO' } }, '*');
+    parent.postMessage({ pluginMessage: { type: 'GET_LAST_BRAND' } }, '*');
 
     const handler = (event: MessageEvent) => {
       const msg = event.data?.pluginMessage;
@@ -68,6 +69,22 @@ export function TechMode({ frames }: Props) {
 
       if (msg.type === 'USER_INFO') {
         setFigmaUserName(msg.name ?? '');
+      }
+
+      if (msg.type === 'LAST_BRAND_LOADED' && msg.brand) {
+        // Silently re-connect to the last used brand without user interaction
+        fetch(`${BACKEND_URL}/api/brands/${encodeURIComponent(msg.brand)}/key`, {
+          headers: authHeaders()
+        })
+          .then(r => r.ok ? r.json() : Promise.reject())
+          .then(data => {
+            setKlaviyoKey(data.apiKey);
+            setActiveBrand(msg.brand);
+            setStep('configure');
+          })
+          .catch(() => {
+            // Brand or key no longer valid — stay on key_setup so user can re-select
+          });
       }
     };
 
@@ -100,6 +117,7 @@ export function TechMode({ frames }: Props) {
       setKlaviyoKey(apiKey);
       setActiveBrand(brandName);
       setStep('configure');
+      parent.postMessage({ pluginMessage: { type: 'SAVE_LAST_BRAND', brand: brandName } }, '*');
     } catch (e) {
       setConnectError(e instanceof Error ? e.message : 'Connection failed');
     } finally {

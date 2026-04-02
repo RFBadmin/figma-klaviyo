@@ -151,6 +151,7 @@ export type PluginMessage =
   | { type: 'USER_INFO'; name: string }
   | { type: 'KLAVIYO_KEY_LOADED'; key: string | null }
   | { type: 'KLAVIYO_KEY_SAVED' }
+  | { type: 'LAST_BRAND_LOADED'; brand: string | null }
   | { type: 'FIGMA_SLICES_CHANGED'; frameId: string }
   | { type: 'ERROR'; message: string; _reqId?: string };
 
@@ -165,6 +166,8 @@ export type UIMessage =
   | { type: 'RESIZE_PLUGIN'; width: number; height: number }
   | { type: 'SAVE_KLAVIYO_KEY'; key: string }
   | { type: 'GET_KLAVIYO_KEY' }
+  | { type: 'SAVE_LAST_BRAND'; brand: string }
+  | { type: 'GET_LAST_BRAND' }
   | { type: 'GET_USER_INFO' }
   | { type: 'GET_FIGMA_SLICES'; frameId: string; _reqId?: string }
   | { type: 'CREATE_SLICE_NODES'; frameId: string; slices: Array<{ name: string; y_start: number; y_end: number; x_start?: number; x_end?: number }>; _reqId?: string }

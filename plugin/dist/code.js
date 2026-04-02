@@ -325,6 +325,15 @@
               figma.ui.postMessage({ type: "KLAVIYO_KEY_LOADED", key: key != null ? key : null });
               break;
             }
+            case "SAVE_LAST_BRAND": {
+              yield figma.clientStorage.setAsync("last_brand", msg.brand);
+              break;
+            }
+            case "GET_LAST_BRAND": {
+              const brand = yield figma.clientStorage.getAsync("last_brand");
+              figma.ui.postMessage({ type: "LAST_BRAND_LOADED", brand: brand != null ? brand : null });
+              break;
+            }
             case "CLOSE_PLUGIN": {
               figma.closePlugin();
               break;
