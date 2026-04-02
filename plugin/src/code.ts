@@ -66,44 +66,46 @@ figma.on('selectionchange', () => {
 // When slice nodes are deleted, also clear the persisted pluginData so stale
 // slice definitions don't keep reappearing.
 // Tracks which frames had slices so we can detect true→false transitions.
-const frameSliceState = new Map<string, boolean>();
-// Initialise from all frames on current page
+// Track slice COUNT per frame so we only react when slices are actually added/removed/resized.
+const frameSliceCount = new Map<string, number>();
 for (const f of getAllEmailFrames()) {
-  frameSliceState.set(f.id, frameHasFigmaSlices(f));
+  frameSliceCount.set(f.id, findSliceNodesRecursive(f).length);
 }
 
 let docChangeTimer: ReturnType<typeof setTimeout> | null = null;
 figma.on('documentchange', (event) => {
-  const affectsNodes = event.documentChanges.some(
-    c => c.type === 'DELETE' || c.type === 'CREATE' || c.type === 'PROPERTY_CHANGE'
+  // Only care about structural changes — ignore selection, style, text edits, etc.
+  const hasStructural = event.documentChanges.some(
+    c => c.type === 'DELETE' || c.type === 'CREATE' ||
+        (c.type === 'PROPERTY_CHANGE' && (c.properties as string[]).some(
+          p => p === 'width' || p === 'height' || p === 'x' || p === 'y' || p === 'visible'
+        ))
   );
-  if (!affectsNodes) return;
+  if (!hasStructural) return;
   if (docChangeTimer) clearTimeout(docChangeTimer);
   docChangeTimer = setTimeout(() => {
     docChangeTimer = null;
 
-    // Detect slice-level changes per frame and notify UI for live preview updates
     const framesWithSliceChange: string[] = [];
     for (const frame of getAllEmailFrames()) {
-      const hadSlices = frameSliceState.get(frame.id) ?? false;
-      const hasSlices = frameHasFigmaSlices(frame);
-      if (hadSlices && !hasSlices) {
-        clearSliceData(frame.id);
-      }
-      // If slice presence changed OR frame already has slices (geometry may have changed),
-      // flag it for a live reload in the plugin UI
-      if (hadSlices !== hasSlices || hasSlices) {
+      const prevCount = frameSliceCount.get(frame.id) ?? 0;
+      const slices = findSliceNodesRecursive(frame);
+      const newCount = slices.length;
+
+      if (newCount !== prevCount) {
+        // Slice added or removed
+        if (newCount === 0) clearSliceData(frame.id);
         framesWithSliceChange.push(frame.id);
+        frameSliceCount.set(frame.id, newCount);
       }
-      frameSliceState.set(frame.id, hasSlices);
     }
 
-    // Notify UI of slice changes so the preview updates live
+    // Only notify UI when slice structure actually changed
     for (const frameId of framesWithSliceChange) {
       figma.ui.postMessage({ type: 'FIGMA_SLICES_CHANGED', frameId });
     }
 
-    // Re-send full frame list to UI
+    // Re-send frame list to UI
     const sel = getSelectedEmailFrames();
     if (sel.length > 0) {
       const data = sel.map(frame => ({
@@ -118,7 +120,7 @@ figma.on('documentchange', (event) => {
     } else {
       notifyAllPageFrames();
     }
-  }, 400);
+  }, 600);
 });
 
 // ─── Message Handler ──────────────────────────────────────────────────────────
@@ -155,7 +157,7 @@ figma.ui.onmessage = async (msg: UIMessage) => {
       }
 
       case 'EXPORT_FRAME': {
-        const frameNode = figma.getNodeById(msg.frameId) as FrameNode;
+        const frameNode = await figma.getNodeByIdAsync(msg.frameId) as FrameNode;
         if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
         const bytes = await frameNode.exportAsync({
           format: 'JPG',
@@ -166,7 +168,7 @@ figma.ui.onmessage = async (msg: UIMessage) => {
       }
 
       case 'GET_FRAME_LAYOUT': {
-        const layoutFrame = figma.getNodeById(msg.frameId) as FrameNode;
+        const layoutFrame = await figma.getNodeByIdAsync(msg.frameId) as FrameNode;
         if (!layoutFrame) throw new Error(`Frame ${msg.frameId} not found`);
         const frameAbsY = layoutFrame.absoluteBoundingBox?.y ?? 0;
         const frameAbsX = layoutFrame.absoluteBoundingBox?.x ?? 0;
@@ -176,7 +178,7 @@ figma.ui.onmessage = async (msg: UIMessage) => {
       }
 
       case 'GET_FIGMA_SLICES': {
-        const frameNode = figma.getNodeById(msg.frameId) as FrameNode;
+        const frameNode = await figma.getNodeByIdAsync(msg.frameId) as FrameNode;
         if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
 
         const frameAbsY = frameNode.absoluteBoundingBox?.y ?? 0;
@@ -210,7 +212,7 @@ figma.ui.onmessage = async (msg: UIMessage) => {
       }
 
       case 'CLEAR_SLICE_NODES': {
-        const clearFrame = figma.getNodeById(msg.frameId) as FrameNode;
+        const clearFrame = await figma.getNodeByIdAsync(msg.frameId) as FrameNode;
         if (clearFrame) {
           for (const node of findSliceNodesRecursive(clearFrame)) node.remove();
         }
@@ -218,7 +220,7 @@ figma.ui.onmessage = async (msg: UIMessage) => {
       }
 
       case 'CREATE_SLICE_NODES': {
-        const frameNode = figma.getNodeById(msg.frameId) as FrameNode;
+        const frameNode = await figma.getNodeByIdAsync(msg.frameId) as FrameNode;
         if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
 
         // Remove ALL existing slice nodes (including nested) before recreating

@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import tempfile
 
 from flask import Blueprint, request, jsonify
@@ -25,15 +26,18 @@ def _load() -> dict:
 
 
 def _save(brands: dict) -> None:
-    """Write brands.json atomically."""
-    dir_ = os.path.dirname(os.path.abspath(BRANDS_FILE))
-    fd, tmp = tempfile.mkstemp(dir=dir_, suffix='.tmp')
+    """Write brands.json safely using system /tmp (avoids volume permission issues)."""
+    fd, tmp = tempfile.mkstemp(suffix='.tmp')
     try:
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
             json.dump(brands, f, indent=2)
-        os.replace(tmp, BRANDS_FILE)
+        # shutil.move handles cross-filesystem moves (e.g. /tmp → /data)
+        shutil.move(tmp, BRANDS_FILE)
     except Exception:
-        os.unlink(tmp)
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
         raise
 
 

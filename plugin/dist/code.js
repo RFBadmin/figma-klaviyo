@@ -133,31 +133,32 @@
           notifyAllPageFrames();
         }
       });
-      var frameSliceState = /* @__PURE__ */ new Map();
+      var frameSliceCount = /* @__PURE__ */ new Map();
       for (const f of getAllEmailFrames()) {
-        frameSliceState.set(f.id, frameHasFigmaSlices(f));
+        frameSliceCount.set(f.id, findSliceNodesRecursive(f).length);
       }
       var docChangeTimer = null;
       figma.on("documentchange", (event) => {
-        const affectsNodes = event.documentChanges.some(
-          (c) => c.type === "DELETE" || c.type === "CREATE" || c.type === "PROPERTY_CHANGE"
+        const hasStructural = event.documentChanges.some(
+          (c) => c.type === "DELETE" || c.type === "CREATE" || c.type === "PROPERTY_CHANGE" && c.properties.some(
+            (p) => p === "width" || p === "height" || p === "x" || p === "y" || p === "visible"
+          )
         );
-        if (!affectsNodes) return;
+        if (!hasStructural) return;
         if (docChangeTimer) clearTimeout(docChangeTimer);
         docChangeTimer = setTimeout(() => {
           var _a;
           docChangeTimer = null;
           const framesWithSliceChange = [];
           for (const frame of getAllEmailFrames()) {
-            const hadSlices = (_a = frameSliceState.get(frame.id)) != null ? _a : false;
-            const hasSlices = frameHasFigmaSlices(frame);
-            if (hadSlices && !hasSlices) {
-              clearSliceData(frame.id);
-            }
-            if (hadSlices !== hasSlices || hasSlices) {
+            const prevCount = (_a = frameSliceCount.get(frame.id)) != null ? _a : 0;
+            const slices = findSliceNodesRecursive(frame);
+            const newCount = slices.length;
+            if (newCount !== prevCount) {
+              if (newCount === 0) clearSliceData(frame.id);
               framesWithSliceChange.push(frame.id);
+              frameSliceCount.set(frame.id, newCount);
             }
-            frameSliceState.set(frame.id, hasSlices);
           }
           for (const frameId of framesWithSliceChange) {
             figma.ui.postMessage({ type: "FIGMA_SLICES_CHANGED", frameId });
@@ -176,7 +177,7 @@
           } else {
             notifyAllPageFrames();
           }
-        }, 400);
+        }, 600);
       });
       figma.ui.onmessage = (msg) => __async(null, null, function* () {
         var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q;
@@ -205,7 +206,7 @@
               break;
             }
             case "EXPORT_FRAME": {
-              const frameNode = figma.getNodeById(msg.frameId);
+              const frameNode = yield figma.getNodeByIdAsync(msg.frameId);
               if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
               const bytes = yield frameNode.exportAsync({
                 format: "JPG",
@@ -215,7 +216,7 @@
               break;
             }
             case "GET_FRAME_LAYOUT": {
-              const layoutFrame = figma.getNodeById(msg.frameId);
+              const layoutFrame = yield figma.getNodeByIdAsync(msg.frameId);
               if (!layoutFrame) throw new Error(`Frame ${msg.frameId} not found`);
               const frameAbsY = (_b = (_a = layoutFrame.absoluteBoundingBox) == null ? void 0 : _a.y) != null ? _b : 0;
               const frameAbsX = (_d = (_c = layoutFrame.absoluteBoundingBox) == null ? void 0 : _c.x) != null ? _d : 0;
@@ -224,7 +225,7 @@
               break;
             }
             case "GET_FIGMA_SLICES": {
-              const frameNode = figma.getNodeById(msg.frameId);
+              const frameNode = yield figma.getNodeByIdAsync(msg.frameId);
               if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
               const frameAbsY = (_f = (_e = frameNode.absoluteBoundingBox) == null ? void 0 : _e.y) != null ? _f : 0;
               const frameAbsX = (_h = (_g = frameNode.absoluteBoundingBox) == null ? void 0 : _g.x) != null ? _h : 0;
@@ -252,14 +253,14 @@
               break;
             }
             case "CLEAR_SLICE_NODES": {
-              const clearFrame = figma.getNodeById(msg.frameId);
+              const clearFrame = yield figma.getNodeByIdAsync(msg.frameId);
               if (clearFrame) {
                 for (const node of findSliceNodesRecursive(clearFrame)) node.remove();
               }
               break;
             }
             case "CREATE_SLICE_NODES": {
-              const frameNode = figma.getNodeById(msg.frameId);
+              const frameNode = yield figma.getNodeByIdAsync(msg.frameId);
               if (!frameNode) throw new Error(`Frame ${msg.frameId} not found`);
               const existingSlices = findSliceNodesRecursive(frameNode);
               for (const node of existingSlices) node.remove();
